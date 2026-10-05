@@ -73,17 +73,16 @@ git push -u origin main
 
 ### GitHub Pages (recommended, automatic)
 
-`.github/workflows/deploy.yml` lints, tests, builds and deploys on every push to `main`.
+**Live site:** https://kirancodes-dev.github.io/kirandaily/
 
-One-time setup:
+`.github/workflows/deploy.yml` runs on every push to `main`. It lints, tests and builds the app, then publishes `dist/` to the **`gh-pages` branch**, and GitHub Pages serves that branch. There's nothing to click: GitHub turns Pages on by itself the first time a `gh-pages` branch is pushed.
 
-1. Push the code to GitHub (see Git setup above).
-2. On GitHub, open **Settings → Pages**.
-3. Under **Build and deployment → Source**, choose **GitHub Actions**.
-4. Push again, or run the workflow by hand: **Actions → Deploy to GitHub Pages → Run workflow**.
-5. The site goes live at `https://<your-user>.github.io/<repo-name>/`, for example `https://kirancodes-dev.github.io/kirandaily/`.
+If you fork or rename the repo and the site doesn't appear, open **Settings → Pages → Build and deployment**, set **Source: Deploy from a branch**, then choose **Branch: `gh-pages` / `(root)`** and save.
 
-The workflow sets the correct base path (`/<repo-name>/`) for you. The app uses hash URLs (`#/study`), so refreshing any page works on Pages without extra configuration.
+- The site lives at `https://<your-user>.github.io/<repo-name>/`. The workflow sets the base path (`/<repo-name>/`) automatically.
+- The app uses hash URLs (`#/study`), so refreshing any page works on Pages.
+- Don't edit the `gh-pages` branch by hand. Every deploy overwrites it.
+- To redeploy without a code change, use **Actions → Deploy to GitHub Pages → Run workflow**.
 
 ### Vercel (optional)
 
@@ -183,7 +182,7 @@ git commit -m "Change Saturday plan"
 git push
 ```
 
-GitHub Actions (or Vercel/Netlify) rebuilds and redeploys automatically. Installed PWAs update themselves on the next launch. Updating the code never deletes your data, because the data lives in your browser, not in the repository.
+GitHub Actions rebuilds the `gh-pages` branch (or Vercel/Netlify redeploys) automatically, usually within 2–3 minutes. Installed PWAs update themselves on the next launch. Updating the code never deletes your data, because the data lives in your browser, not in the repository.
 
 ---
 

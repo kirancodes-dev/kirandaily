@@ -1,21 +1,24 @@
 name: Deploy to GitHub Pages
 
+# On every push to main: lint, test, build, then publish dist/ to the
+# gh-pages branch. GitHub Pages serves that branch (Settings → Pages →
+# "Deploy from a branch" → gh-pages / root), which GitHub turns on
+# automatically the first time the branch is pushed.
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,22 +29,19 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-      # Needs Settings → Pages → Source: "GitHub Actions" (one-time, see README).
-      - id: pages
-        uses: actions/configure-pages@v5
       - run: npm run build
         env:
-          BASE_PATH: ${{ steps.pages.outputs.base_path }}/
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          # Project sites live at https://<user>.github.io/<repo>/
+          BASE_PATH: /${{ github.event.repository.name }}/
+      - name: Publish dist/ to the gh-pages branch
+        working-directory: dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          touch .nojekyll
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
