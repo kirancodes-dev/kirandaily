@@ -6,6 +6,7 @@ dist/
 dev-dist/
 dist-emulators/
 *.tsbuildinfo
+.tsbuild/
 
 # tests
 coverage/
