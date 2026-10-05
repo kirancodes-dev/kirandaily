@@ -7,6 +7,8 @@ import { expect, test, type Page } from '@playwright/test';
 const EVENING = new Date('2026-10-05T19:45:00+05:30');
 
 const isWide = (page: Page) => (page.viewportSize()?.width ?? 1280) >= 1024;
+/** Today switches to two columns at Tailwind's xl breakpoint (every Mac size). */
+const isTwoColumn = (page: Page) => (page.viewportSize()?.width ?? 1280) >= 1280;
 const onIphone = () => test.info().project.name === 'iphone-17';
 
 /** iPhone 17 in portrait: Dynamic Island on top, home indicator below (Chromium can emulate the insets). */
@@ -63,14 +65,14 @@ test('no page scrolls sideways at this screen size', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport);
 });
 
-test('Today: overview beside the schedule on wide screens, one column on phones', async ({ page }) => {
+test('Today: overview beside the schedule on Mac-size screens, one column on phones', async ({ page }) => {
   await open(page);
   const overview = page.getByTestId('today-overview');
   const schedule = page.getByTestId('today-schedule');
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible();
   const a = (await overview.boundingBox())!;
   const b = (await schedule.boundingBox())!;
-  if (isWide(page)) {
+  if (isTwoColumn(page)) {
     expect(b.x, 'schedule sits to the right of the overview').toBeGreaterThanOrEqual(a.x + a.width);
     expect(Math.abs(b.y - a.y), 'both columns start at the top').toBeLessThan(8);
     // The day's stats fit their column (2 tiles across), nothing spills out.
@@ -88,6 +90,18 @@ test('Today: overview beside the schedule on wide screens, one column on phones'
     expect(Math.abs(b.x - a.x), 'same left edge').toBeLessThan(2);
     expect(Math.abs(b.width - a.width), 'same width').toBeLessThan(2);
   }
+});
+
+test('narrow Mac window: Today falls back to one column next to the sidebar', async ({ page }) => {
+  test.skip(test.info().project.name !== 'mac', 'Mac only');
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await open(page);
+  await expect(page.locator('aside')).toBeVisible();
+  const a = (await page.getByTestId('today-overview').boundingBox())!;
+  const b = (await page.getByTestId('today-schedule').boundingBox())!;
+  expect(b.y).toBeGreaterThanOrEqual(a.y + a.height);
+  expect(Math.abs(b.x - a.x)).toBeLessThan(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1100);
 });
 
 test('iPhone 17: top bar clears the Dynamic Island, tab bar sits above the home indicator', async ({ page }) => {

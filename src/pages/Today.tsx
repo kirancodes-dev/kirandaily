@@ -81,9 +81,10 @@ export default function Today() {
 
   return (
     <>
-      {/* Phones: one column, in this order. Wide screens (iPad landscape, Mac): the day overview
-        on the left and the schedule timeline on the right, its header pinned under the top bar. */}
-      <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] xl:gap-8">
+      {/* Phones and narrow windows: one column, in this order. Mac-size screens (1280px+): the day
+        overview on the left and the schedule timeline on the right, its header pinned under the top bar.
+        (Below 1280 the sidebar leaves too little room for two readable columns.) */}
+      <div className="space-y-4 xl:grid xl:grid-cols-[minmax(0,6fr)_minmax(0,5fr)] xl:items-start xl:gap-8 xl:space-y-0">
         <div className="kp-today-side min-w-0 space-y-4" data-testid="today-overview">
           <header>
             {date !== today && (
@@ -145,8 +146,8 @@ export default function Today() {
           <TodayUpcoming date={date} today={today} />
         </div>
 
-        <section aria-labelledby="schedule-heading" className="min-w-0 space-y-3 lg:space-y-2" data-testid="today-schedule">
-          <div className="flex flex-wrap items-center justify-between gap-2 lg:sticky lg:top-[var(--kp-topbar-h)] lg:z-10 lg:-mx-2 lg:rounded-b-2xl lg:bg-slate-50/95 lg:px-2 lg:py-2 lg:backdrop-blur-xl lg:dark:bg-slate-950/95">
+        <section aria-labelledby="schedule-heading" className="min-w-0 space-y-3 xl:space-y-2" data-testid="today-schedule">
+          <div className="flex flex-wrap items-center justify-between gap-2 xl:sticky xl:top-[var(--kp-topbar-h)] xl:z-10 xl:-mx-2 xl:rounded-b-2xl xl:bg-slate-50/95 xl:px-2 xl:py-2 xl:backdrop-blur-xl xl:dark:bg-slate-950/95">
             <h2 id="schedule-heading" className="text-xl font-semibold">
               Schedule
             </h2>

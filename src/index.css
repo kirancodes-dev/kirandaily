@@ -144,10 +144,10 @@
   }
 
   /*
-   * Today on wide screens: the stats column is narrower than the window, so its
-   * 4-across tiles (sized by the viewport) are laid out 2-across instead.
+   * Today in two columns (1280px+, see pages/Today.tsx): the overview column is narrower
+   * than the window, so its 4-across stat tiles (sized by the viewport) go 2-across.
    */
-  @media (min-width: 1024px) {
+  @media (min-width: 1280px) {
     .kp-today-side .md\:grid-cols-4 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
