@@ -2,6 +2,8 @@
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
+  // hover: styles only for a mouse/trackpad, so taps on iPhone never leave a "stuck" hover colour.
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {
