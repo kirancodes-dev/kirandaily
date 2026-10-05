@@ -19,8 +19,11 @@ import { minutesLeft, taskEnd, taskStart } from '../../utils/timeGate';
 /** Overdue rows shown before "Show all". */
 const COLLAPSED = 3;
 
+// The card is a size container: buttons get their text labels when the card (not the window) is wide
+// enough, so the narrow overview column of the Mac two-column Today keeps room for the titles.
 const small =
-  'inline-flex min-h-touch min-w-touch shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl text-sm font-semibold ring-1 ring-inset transition-colors sm:px-3';
+  'inline-flex min-h-touch min-w-touch shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl text-sm font-semibold ring-1 ring-inset transition-colors [@container(min-width:34rem)]:px-3';
+const label = 'hidden [@container(min-width:34rem)]:inline';
 const plain =
   'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-700';
 
@@ -34,16 +37,16 @@ interface OverdueRowProps {
   onSkip: () => void;
 }
 
-/** One overdue task. Phones get compact icon buttons (labelled for screen readers), wider screens text too. */
+/** One overdue task. Narrow cards (phones) get compact icon buttons (labelled for screen readers), wider cards text too. */
 function OverdueRow({ task, now, overnight, onDone, onMove, onSkip }: OverdueRowProps) {
   const ago = Math.max(1, Math.round((now.getTime() - taskEnd(task).getTime()) / 60_000));
   return (
-    <li className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0 sm:gap-3">
+    <li className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0 [@container(min-width:34rem)]:gap-3">
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{task.title}</p>
         <p className={`text-sm text-slate-600 dark:text-slate-400 ${overnight ? '' : 'truncate'}`}>
           {overnight ? 'Last night · ended ' : 'Ended '}
-          <span className="hidden sm:inline">{formatTime12(task.endTime)} · </span>
+          <span className="hidden [@container(min-width:24rem)]:inline">{formatTime12(task.endTime)} · </span>
           {formatMinutes(ago)} ago
         </p>
       </div>
@@ -55,15 +58,15 @@ function OverdueRow({ task, now, overnight, onDone, onMove, onSkip }: OverdueRow
         className={`${small} bg-emerald-600 text-white ring-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-500`}
       >
         <Check size={18} strokeWidth={3} aria-hidden />
-        <span className="hidden sm:inline">Mark done</span>
+        <span className={label}>Mark done</span>
       </button>
       <button type="button" onClick={onMove} aria-label={`Move ${task.title}`} title="Move / reschedule" className={`${small} ${plain}`}>
         <CalendarClock size={18} aria-hidden />
-        <span className="hidden sm:inline">Move</span>
+        <span className={label}>Move</span>
       </button>
       <button type="button" onClick={onSkip} aria-label={`Skip ${task.title}`} title="Skip today" className={`${small} ${plain}`}>
         <SkipForward size={18} aria-hidden />
-        <span className="hidden sm:inline">Skip</span>
+        <span className={label}>Skip</span>
       </button>
     </li>
   );
@@ -174,7 +177,7 @@ export function TodayAttention({ date, today }: { date: string; today: string })
     <>
       <section
         aria-labelledby={overdue.length ? 'attention-heading' : 'now-heading'}
-        className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-slate-900 ${
+        className={`rounded-2xl border bg-white p-4 shadow-sm [container-type:inline-size] dark:bg-slate-900 ${
           overdue.length ? 'border-amber-300 dark:border-amber-700/70' : 'border-brand-200 dark:border-brand-800'
         }`}
       >

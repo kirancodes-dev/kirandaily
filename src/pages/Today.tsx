@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, CalendarHeart, CalendarPlus, ClipboardCheck, Plus } from 'lucide-react';
 import { useAppData } from '../hooks/useAppData';
@@ -14,12 +14,25 @@ import { TaskCard } from '../components/tasks/TaskCard';
 import { useTaskDialogs } from '../components/tasks/TaskDialogs';
 import { Button } from '../components/common/Button';
 import { Banner, EmptyState } from '../components/common/Feedback';
-import { addDays, dayOfWeek, durationMinutes, formatLongDate, greeting, isValidISODate } from '../utils/date';
+import { addDays, dayOfWeek, durationMinutes, formatLongDate, greeting, isValidISODate, parseISODate } from '../utils/date';
 import { activeTemplateByKey } from '../utils/schedule';
 import { TodayAttention } from '../components/reminders/TodayAttention';
 import { TodayUpcoming } from '../components/calendar/TodayUpcoming';
 import { TodayMotivation } from '../components/profile/TodayMotivation';
 import { DAY_EVENT, NEW_TASK_EVENT, NEW_TASK_STATE } from '../components/layout/shortcuts';
+import { useHeightVar } from '../components/layout/useHeightVar';
+
+/**
+ * Mac two-column Today: the "Schedule" header is pinned under the top bar, and browsers only keep
+ * keyboard focus clear of the top bar. A task reached with Tab / Shift+Tab that would stop under the
+ * header is nudged into view below it. (Clicks are left alone; on phones the header is not pinned.)
+ */
+function keepFocusBelow(header: HTMLElement | null, e: FocusEvent<HTMLElement>) {
+  const target = e.target;
+  if (!header || getComputedStyle(header).position !== 'sticky' || !target.matches(':focus-visible')) return;
+  const overlap = header.getBoundingClientRect().bottom + 8 - target.getBoundingClientRect().top;
+  if (overlap > 0) window.scrollBy({ top: -overlap, behavior: 'auto' });
+}
 
 export default function Today() {
   const today = useToday();
@@ -34,6 +47,8 @@ export default function Today() {
   const streaks = useStreaks(today);
   const { log, save } = useDayLog(date);
   const dialogs = useTaskDialogs();
+  const overviewRef = useHeightVar<HTMLDivElement>('--kp-side-h');
+  const scheduleHeaderRef = useRef<HTMLDivElement>(null);
   const [dialog, setDialog] = useState<'none' | 'sleep' | 'special'>('none');
 
   const sleepTarget = useMemo(() => {
@@ -82,10 +97,13 @@ export default function Today() {
   return (
     <>
       {/* Phones and narrow windows: one column, in this order. Mac-size screens (1280px+): the day
-        overview on the left and the schedule timeline on the right, its header pinned under the top bar.
-        (Below 1280 the sidebar leaves too little room for two readable columns.) */}
-      <div className="space-y-4 xl:grid xl:grid-cols-[minmax(0,6fr)_minmax(0,5fr)] xl:items-start xl:gap-8 xl:space-y-0">
-        <div className="kp-today-side min-w-0 space-y-4" data-testid="today-overview">
+        overview on the left, kept in view while the timeline scrolls (see .kp-today-side in index.css),
+        and the schedule timeline on the right with its header, and the day shown, pinned under the top
+        bar. (Below 1280 the sidebar leaves too little room for two readable columns.)
+        From 1400px the overview gets a little more of the width, so "Needs attention" has room for its
+        button labels; at 1280 the schedule keeps enough to fit its header on one line. */}
+      <div className="space-y-4 xl:grid xl:grid-cols-[minmax(0,6fr)_minmax(0,5fr)] min-[1400px]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:items-start xl:gap-8 xl:space-y-0">
+        <div ref={overviewRef} className="kp-today-side min-w-0 space-y-4" data-testid="today-overview">
           <header>
             {date !== today && (
               <p className="text-sm font-medium text-brand-700 dark:text-brand-300">{date < today ? 'Looking back' : 'Planning ahead'}</p>
@@ -147,10 +165,19 @@ export default function Today() {
         </div>
 
         <section aria-labelledby="schedule-heading" className="min-w-0 space-y-3 xl:space-y-2" data-testid="today-schedule">
-          <div className="flex flex-wrap items-center justify-between gap-2 xl:sticky xl:top-[var(--kp-topbar-h)] xl:z-10 xl:-mx-2 xl:rounded-b-2xl xl:bg-slate-50/95 xl:px-2 xl:py-2 xl:backdrop-blur-xl xl:dark:bg-slate-950/95">
-            <h2 id="schedule-heading" className="text-xl font-semibold">
-              Schedule
-            </h2>
+          <div
+            ref={scheduleHeaderRef}
+            className="flex flex-wrap items-center justify-between gap-2 xl:sticky xl:top-[var(--kp-topbar-h)] xl:z-10 xl:-mx-2 xl:rounded-b-2xl xl:bg-slate-50/95 xl:px-2 xl:py-2 xl:backdrop-blur-xl xl:dark:bg-slate-950/95"
+          >
+            <div>
+              <h2 id="schedule-heading" className="text-xl font-semibold">
+                Schedule
+              </h2>
+              {/* Mac: the day being shown stays in view with the pinned header, also after [ / ]. */}
+              <p className="hidden text-sm font-medium text-slate-600 dark:text-slate-400 xl:block" data-testid="schedule-day">
+                {parseISODate(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+              </p>
+            </div>
             <div className="flex gap-2">
               {!log?.special && (
                 <Button variant="ghost" icon={<CalendarHeart size={18} aria-hidden />} onClick={() => setDialog('special')}>
@@ -169,7 +196,9 @@ export default function Today() {
                 : 'Add a task to get started.'}
             </EmptyState>
           ) : (
-            <ol className="space-y-2">
+            // Mac: a task reached with Tab / Shift+Tab stops below the pinned "Schedule" header, not under it
+            // (scroll-margin when the browser scrolls to it, keepFocusBelow when it thinks no scroll is needed).
+            <ol className="space-y-2 xl:[&_*]:scroll-mt-[4.5rem]" onFocus={(e) => keepFocusBelow(scheduleHeaderRef.current, e)}>
               {tasks.map((t) => (
                 <li key={t.id}>
                   <TaskCard task={t} onToggle={dialogs.toggle} onOpenActions={dialogs.openActions} />

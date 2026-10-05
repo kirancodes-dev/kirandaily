@@ -144,11 +144,32 @@
   }
 
   /*
-   * Today in two columns (1280px+, see pages/Today.tsx): the overview column is narrower
-   * than the window, so its 4-across stat tiles (sized by the viewport) go 2-across.
+   * A scroll area with more content below (see layout/useMoreBelow.ts) fades out at its
+   * bottom edge: macOS hides scrollbars, so this is the cue that it scrolls.
+   */
+  .kp-fade-more[data-more-below] {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+  }
+
+  /*
+   * Today in two columns (1280px+, see pages/Today.tsx).
+   * - The day overview is sticky, so the window never goes half empty while the schedule scrolls.
+   *   If it fits, it stays put under the top bar. If it is taller than the window, it scrolls with
+   *   the page until its end comes into view, and its end then stays (like the sidebar of a Mac
+   *   app; no scroll area inside the page). --kp-side-h is its height, kept up to date by Today;
+   *   3rem is the page's bottom padding (lg:pb-12), so the end of the page never pushes it up.
+   * - The overview column is narrower than the window, so tile rows sized for the full window go
+   *   2-across: the 4 stat tiles and the 3 "Coming up" countdowns.
    */
   @media (min-width: 1280px) {
-    .kp-today-side .md\:grid-cols-4 {
+    .kp-today-side {
+      position: sticky;
+      top: min(calc(var(--kp-topbar-h) + 1.5rem), calc(100vh - var(--kp-side-h, 0px) - 3rem));
+      top: min(calc(var(--kp-topbar-h) + 1.5rem), calc(100dvh - var(--kp-side-h, 0px) - 3rem));
+    }
+    .kp-today-side .md\:grid-cols-4,
+    .kp-today-side .sm\:grid-cols-3 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }

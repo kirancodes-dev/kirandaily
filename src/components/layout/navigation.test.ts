@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { groupNav, isSidebarActive, isTabActive, isWidePage, MORE_NAV, PRIMARY_NAV, type NavItem } from './navigation';
+import {
+  groupNav,
+  isSidebarActive,
+  isTabActive,
+  isWidePage,
+  MORE_NAV,
+  PRIMARY_NAV,
+  SIDEBAR_FOOTER_NAV,
+  SIDEBAR_PROFILE_PATH,
+  SIDEBAR_SECTIONS,
+  type NavItem,
+} from './navigation';
 import { Sun } from 'lucide-react';
 
 describe('PRIMARY_NAV', () => {
@@ -26,6 +37,18 @@ describe('groupNav', () => {
       { title: 'App', items: [items[0], items[2]] },
       { title: 'More', items: [items[1]] },
     ]);
+  });
+});
+
+describe('desktop sidebar layout', () => {
+  it('reaches every More page once: profile card, sections, or footer', () => {
+    const listed = [SIDEBAR_PROFILE_PATH, ...SIDEBAR_SECTIONS.flatMap((s) => s.items.map((i) => i.to)), ...SIDEBAR_FOOTER_NAV.map((i) => i.to)];
+    expect([...listed].sort()).toEqual(MORE_NAV.map((m) => m.to).sort());
+  });
+
+  it('keeps Search and Settings in the footer and drops the one-item sections', () => {
+    expect(SIDEBAR_FOOTER_NAV.map((n) => n.label)).toEqual(['Search', 'Settings']);
+    expect(SIDEBAR_SECTIONS.map((s) => s.title)).toEqual(['Plan & reflect', 'Learning tracks', 'College']);
   });
 });
 
@@ -69,14 +92,21 @@ describe('isSidebarActive (desktop sidebar)', () => {
   });
 
   it('lights exactly one item for every page', () => {
-    const all = [...PRIMARY_NAV.filter((n) => n.to !== '/more'), ...MORE_NAV];
+    // The sidebar shows all 5 primary items, the profile card and every More page (see SIDEBAR_*).
+    const all = [...PRIMARY_NAV, ...MORE_NAV];
     for (const [pathname, search] of [
       ['/', ''],
       ['/', '?date=2026-10-06'],
       ['/schedule', '?view=month'],
+      ['/study', ''],
       ['/java', ''],
       ['/progress', '?tab=weekly'],
       ['/progress', ''],
+      ['/progress', '?tab=monthly'],
+      ['/more', ''],
+      ['/profile', ''],
+      ['/calendar', ''],
+      ['/search', ''],
       ['/settings', ''],
     ]) {
       const lit = all.filter((n) => isSidebarActive(n.to, pathname, search)).map((n) => n.label);

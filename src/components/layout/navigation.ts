@@ -77,6 +77,18 @@ export function groupNav(items: NavItem[]): NavSection[] {
   return sections;
 }
 
+/**
+ * Desktop sidebar (Mac): it has to fit a MacBook browser window (about 790px tall) without
+ * scrolling. The profile card at the top stands in for "Profile", and Search + Settings sit in
+ * the footer. Everything else is listed in its More section, and More itself is shortcut 5.
+ */
+const SIDEBAR_FOOTER_PATHS = ['/search', '/settings'];
+export const SIDEBAR_PROFILE_PATH = '/profile';
+export const SIDEBAR_FOOTER_NAV: NavItem[] = MORE_NAV.filter((m) => SIDEBAR_FOOTER_PATHS.includes(m.to));
+export const SIDEBAR_SECTIONS: NavSection[] = groupNav(
+  MORE_NAV.filter((m) => m.to !== SIDEBAR_PROFILE_PATH && !SIDEBAR_FOOTER_PATHS.includes(m.to)),
+);
+
 const pathOf = (to: string) => to.split('?')[0];
 
 /** True when `pathname` is `path` or a sub-path of it ("/java" matches "/java/x", not "/javascript"). */

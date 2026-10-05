@@ -19,6 +19,16 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
+  // Runs before the effect below: remember the opener before showModal() moves focus into the dialog.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The <dialog> unmounts before close() could hand focus back, so do it here.
+    return () => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   useEffect(() => {
     const dlg = ref.current;
     if (!dlg) return;
@@ -28,15 +38,6 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
     } else if (!open && dlg.open) {
       dlg.close();
     }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // The <dialog> unmounts before close() could hand focus back, so do it here.
-    return () => {
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
-    };
   }, [open]);
 
   if (!open) return null;

@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Keyboard, Search, Timer } from 'lucide-react';
-import { groupNav, isSidebarActive, isTabActive, isWidePage, MORE_NAV, PRIMARY_NAV, type NavItem } from './navigation';
+import { Keyboard, Pause, Search } from 'lucide-react';
+import {
+  isSidebarActive,
+  isTabActive,
+  isWidePage,
+  PRIMARY_NAV,
+  SIDEBAR_FOOTER_NAV,
+  SIDEBAR_PROFILE_PATH,
+  SIDEBAR_SECTIONS,
+  type NavItem,
+} from './navigation';
 import { isApplePlatform } from './shortcuts';
 import { ShortcutsHelp } from './ShortcutsHelp';
+import { useMoreBelow } from './useMoreBelow';
 import { useAppData } from '../../hooks/useAppData';
 import { useStudyTimer } from '../../hooks/useStudyTimer';
 import { Banner } from '../common/Feedback';
@@ -16,7 +26,6 @@ import { Avatar } from '../profile/Avatar';
 import { ReminderEngine } from '../reminders/ReminderEngine';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 
-const SIDEBAR_SECTIONS = groupNav(MORE_NAV);
 const BASE = import.meta.env.BASE_URL;
 const APPLE = typeof navigator !== 'undefined' && isApplePlatform(navigator);
 
@@ -56,7 +65,8 @@ function useScrolled() {
 }
 
 // Plain <Link>s with our own aria-current: NavLink would also mark "Progress" current on the weekly review.
-function SidebarLink({ item, shortcut }: { item: NavItem; shortcut?: string }) {
+// Rows are 44px for touch (iPad) and a denser 32px with a mouse or trackpad, so the whole list fits a MacBook window.
+function SidebarLink({ item, shortcut, compact = false }: { item: NavItem; shortcut?: string; compact?: boolean }) {
   const { pathname, search } = useLocation();
   const active = isSidebarActive(item.to, pathname, search);
   const Icon = item.icon;
@@ -65,14 +75,16 @@ function SidebarLink({ item, shortcut }: { item: NavItem; shortcut?: string }) {
       to={item.to}
       aria-current={active ? 'page' : undefined}
       aria-keyshortcuts={shortcut}
-      className={`group relative flex min-h-touch items-center gap-3 rounded-xl px-3 text-[15px] font-medium transition-colors [@media(pointer:fine)]:min-h-[2.25rem] ${
+      className={`group relative flex min-h-touch min-w-0 items-center rounded-xl text-[15px] font-medium transition-colors [@media(pointer:fine)]:min-h-[2rem] ${
+        compact ? 'gap-2 px-2.5' : 'gap-3 px-3'
+      } ${
         active
           ? 'bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-200'
           : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
       }`}
     >
-      {active && <span aria-hidden className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-600 dark:bg-brand-400" />}
-      <Icon size={20} aria-hidden className={active ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'} />
+      {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-brand-600 dark:bg-brand-400" />}
+      <Icon size={19} aria-hidden className={`shrink-0 ${active ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}`} />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {shortcut && (
         <kbd
@@ -83,6 +95,82 @@ function SidebarLink({ item, shortcut }: { item: NavItem; shortcut?: string }) {
         </kbd>
       )}
     </Link>
+  );
+}
+
+/** Desktop sidebar's profile card: stands in for the "Profile" link, so it lights up on that page. */
+function SidebarProfile() {
+  const { data } = useAppData();
+  const { pathname, search } = useLocation();
+  const active = isSidebarActive(SIDEBAR_PROFILE_PATH, pathname, search);
+  return (
+    <Link
+      to={SIDEBAR_PROFILE_PATH}
+      aria-current={active ? 'page' : undefined}
+      className={`relative mb-2 flex min-h-touch items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
+        active ? 'bg-brand-50 dark:bg-brand-500/15' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+      }`}
+    >
+      {active && <span aria-hidden className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-600 dark:bg-brand-400" />}
+      <Avatar size={36} />
+      <span className="min-w-0">
+        <span className={`block truncate font-semibold ${active ? 'text-brand-700 dark:text-brand-200' : ''}`}>{data.profile.name}</span>
+        <span className="block truncate text-xs text-slate-600 dark:text-slate-400">{data.profileExtra.headline || 'View profile'}</span>
+      </span>
+    </Link>
+  );
+}
+
+/** Desktop sidebar (Mac, iPad landscape): everything in one list that fits a MacBook window, Search and Settings at the foot. */
+function Sidebar({ onShowShortcuts }: { onShowShortcuts: () => void }) {
+  const [listRef, moreBelow] = useMoreBelow<HTMLDivElement>();
+  return (
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white/95 dark:border-slate-800 dark:bg-slate-900/95 supports-[height:100dvh]:h-dvh lg:flex">
+      {/* Below the status bar of an installed iPad app (0 elsewhere). */}
+      <div
+        ref={listRef}
+        data-more-below={moreBelow || undefined}
+        className="kp-fade-more flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-2 pt-[calc(0.75rem+var(--kp-safe-top))]"
+      >
+        <div className="mb-1.5 flex min-h-[2.25rem] items-center gap-2 px-3">
+          <img src={`${BASE}favicon.svg`} alt="" className="h-7 w-7" />
+          <span className="text-[17px] font-bold tracking-tight">Kiran Planner</span>
+        </div>
+        <SidebarProfile />
+        <nav aria-label="Main" className="flex flex-col gap-px">
+          {PRIMARY_NAV.map((item, i) => (
+            <SidebarLink key={item.to} item={item} shortcut={String(i + 1)} />
+          ))}
+          {SIDEBAR_SECTIONS.map((section) => (
+            <div key={section.title} className="mt-2 flex flex-col gap-px">
+              <p className="px-3 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{section.title}</p>
+              {section.items.map((item) => (
+                <SidebarLink key={item.to} item={item} />
+              ))}
+            </div>
+          ))}
+        </nav>
+      </div>
+      <div className="border-t border-slate-200 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 dark:border-slate-800">
+        <nav aria-label="Search and settings" className="grid grid-cols-2 gap-1">
+          {SIDEBAR_FOOTER_NAV.map((item) => (
+            <SidebarLink key={item.to} item={item} compact />
+          ))}
+        </nav>
+        <button
+          type="button"
+          onClick={onShowShortcuts}
+          aria-keyshortcuts="?"
+          className="mt-1 hidden min-h-[2rem] w-full items-center gap-2 rounded-xl px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white [@media(hover:hover)]:flex"
+        >
+          <Keyboard size={18} aria-hidden />
+          <span>
+            Press <kbd className="rounded-md border border-slate-300 px-1.5 font-sans text-xs font-semibold dark:border-slate-600">?</kbd> for
+            shortcuts
+          </span>
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -98,23 +186,39 @@ function TimerPill() {
     <button
       type="button"
       onClick={() => navigate('/study')}
-      className={`inline-flex min-h-touch items-center gap-1.5 rounded-full px-3 text-sm font-semibold tabular-nums shadow-sm ${
+      className={`inline-flex min-h-touch shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold tabular-nums shadow-sm ${
         paused ? 'bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100' : 'bg-brand-600 text-white hover:bg-brand-700'
       }`}
       aria-label={`Study timer ${paused ? 'paused' : 'running'}: ${label}. Open Study page`}
     >
-      {paused ? <Timer size={16} aria-hidden /> : <span aria-hidden className="kp-pulse h-2 w-2 rounded-full bg-emerald-300" />}
-      {paused ? 'Paused · ' : ''}
+      {paused ? <Pause size={16} aria-hidden /> : <span aria-hidden className="kp-pulse h-2 w-2 rounded-full bg-emerald-300" />}
+      {/* Phones: the pause icon says it; the word comes back where there is room. */}
+      {paused && <span className="hidden sm:inline">Paused · </span>}
       {label}
     </button>
   );
 }
 
+/** Phone top bar: logo and name. The name gives way to the timer pill on narrow screens (the logo stays). */
+function BrandLink() {
+  const timerOn = useStudyTimer().state.status !== 'idle';
+  return (
+    <Link to="/" className="flex min-h-touch min-w-touch items-center gap-2 rounded-xl lg:hidden" aria-label="Kiran Planner, go to Today">
+      <img src={`${BASE}favicon.svg`} alt="" className="h-7 w-7 shrink-0" />
+      <span className={`truncate text-[17px] font-bold tracking-tight ${timerOn ? 'hidden sm:inline' : ''}`}>Kiran Planner</span>
+    </Link>
+  );
+}
+
+/** Smooth scrolling, unless the system asks for reduced motion. */
+const scrollBehavior = (): ScrollBehavior =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+
 export function AppLayout() {
   useApplyTheme();
   useThemeColorSync();
   const shortcuts = useKeyboardShortcuts();
-  const { data, warnings, dismissWarnings, saveError } = useAppData();
+  const { warnings, dismissWarnings, saveError } = useAppData();
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const scrolled = useScrolled();
@@ -142,52 +246,7 @@ export function AppLayout() {
       {/* Installed on iPhone the status bar text is always white: give it a coloured strip in light mode. */}
       <div aria-hidden className="kp-statusbar" />
 
-      {/* Desktop sidebar (Mac, iPad landscape) */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white/95 dark:border-slate-800 dark:bg-slate-900/95 lg:flex">
-        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-3 pt-4">
-          <div className="mb-1 flex items-center gap-2 px-3">
-            <img src={`${BASE}favicon.svg`} alt="" className="h-7 w-7" />
-            <span className="text-[17px] font-bold tracking-tight">Kiran Planner</span>
-          </div>
-          <Link
-            to="/profile"
-            className="mb-2 flex min-h-touch items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <Avatar size={36} />
-            <span className="min-w-0">
-              <span className="block truncate font-semibold">{data.profile.name}</span>
-              <span className="block truncate text-xs text-slate-600 dark:text-slate-400">{data.profileExtra.headline || 'View profile'}</span>
-            </span>
-          </Link>
-          <nav aria-label="Main" className="flex flex-col gap-0.5">
-            {PRIMARY_NAV.filter((n) => n.to !== '/more').map((item, i) => (
-              <SidebarLink key={item.to} item={item} shortcut={String(i + 1)} />
-            ))}
-            {SIDEBAR_SECTIONS.map((section) => (
-              <div key={section.title} className="mt-2.5 flex flex-col gap-0.5">
-                <p className="px-3 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{section.title}</p>
-                {section.items.map((item) => (
-                  <SidebarLink key={item.to} item={item} />
-                ))}
-              </div>
-            ))}
-          </nav>
-        </div>
-        <div className="hidden border-t border-slate-200 p-3 dark:border-slate-800 [@media(hover:hover)]:block">
-          <button
-            type="button"
-            onClick={shortcuts.openHelp}
-            aria-keyshortcuts="?"
-            className="flex min-h-[2.5rem] w-full items-center gap-2 rounded-xl px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
-          >
-            <Keyboard size={18} aria-hidden />
-            <span>
-              Press <kbd className="rounded-md border border-slate-300 px-1.5 font-sans text-xs font-semibold dark:border-slate-600">?</kbd> for
-              shortcuts
-            </span>
-          </button>
-        </div>
-      </aside>
+      <Sidebar onShowShortcuts={shortcuts.openHelp} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar: blurred, below the Dynamic Island / status bar */}
@@ -196,10 +255,7 @@ export function AppLayout() {
             scrolled ? 'border-slate-200/80 shadow-[0_1px_8px_rgba(15,23,42,0.06)] dark:border-slate-800' : 'border-transparent'
           }`}
         >
-          <Link to="/" className="flex min-h-touch min-w-0 items-center gap-2 rounded-xl lg:hidden" aria-label="Kiran Planner, go to Today">
-            <img src={`${BASE}favicon.svg`} alt="" className="h-7 w-7 shrink-0" />
-            <span className="truncate text-[17px] font-bold tracking-tight">Kiran Planner</span>
-          </Link>
+          <BrandLink />
           <div className="hidden min-w-0 flex-1 lg:block">
             {pathname !== '/search' && (
               <button
@@ -293,7 +349,7 @@ export function AppLayout() {
                     // Like iOS: tapping the tab you are on scrolls back to the top.
                     if (`${pathname}${search}` === item.to) {
                       e.preventDefault();
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      window.scrollTo({ top: 0, behavior: scrollBehavior() });
                     }
                   }}
                   className={`flex min-h-[3.5rem] flex-col items-center justify-center gap-0.5 pt-1 text-xs ${
