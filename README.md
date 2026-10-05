@@ -6,6 +6,10 @@ A mobile-first personal planner for Kiran: daily schedule, college, Java, DSA, G
 - **Static site:** it deploys to GitHub Pages, Vercel or Netlify.
 - **Installable PWA:** after the first load it works offline.
 - **Plan start:** the timetable starts on **Monday, October 5, 2026** and repeats into later months.
+- **Made for iPhone 17 and Mac:** Home Screen app with safe areas and bottom sheets on the phone; two-column Today, a sidebar and keyboard shortcuts on the Mac.
+- **Honest ticks:** a task can't be ticked before it starts (you can still tick it later). Reminders tell you when a task starts and ask when one ends without a tick.
+- **Your semester calendar built in:** the official 5th-semester dates (tests, holidays, last working day, SEE) are preloaded. You can star important dates, add your own, and export everything to Apple or Google Calendar.
+- **Profile, activity graph and levels:** profile photo, GitHub-style activity heatmap, XP, levels and badges, plus your GitHub and LeetCode stats.
 
 Built with React 18, TypeScript, Vite, Tailwind CSS, React Router, Lucide icons, Recharts, Zod and vite-plugin-pwa.
 
