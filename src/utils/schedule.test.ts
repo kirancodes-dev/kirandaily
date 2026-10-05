@@ -92,3 +92,43 @@ describe('default schedule', () => {
     expect(wed).toHaveLength(2); // its own gym + the moved one
   });
 });
+
+describe('following the semester calendar', () => {
+  const data = createDefaultData();
+  const index = buildScheduleIndex(data);
+  const titles = (date: string) => tasksForDate(index, date).map((t) => t.title);
+
+  it('leaves College and the trips to it out on official holidays, but keeps gym, study and sleep', () => {
+    // Tue 20 Oct 2026 is Mahanavami.
+    const day = titles('2026-10-20');
+    expect(day).not.toContain('College');
+    expect(day).not.toContain('Get ready + travel');
+    expect(day).not.toContain('Travel + rest');
+    expect(day).toEqual(expect.arrayContaining(['Gym', 'DSA', 'College subject', 'Sleep']));
+    expect(titles('2026-10-19')).toContain('College');
+  });
+
+  it('gives a Saturday that follows a weekday timetable that weekday’s plan', () => {
+    // Sat 31 Oct 2026: "Saturday: Wednesday timetable followed".
+    expect(titles('2026-10-31')).toEqual(titles('2026-10-28'));
+    // An ordinary Saturday keeps the weekend plan (no trip to college).
+    expect(titles('2026-11-07')).not.toContain('Get ready + travel');
+    expect(titles('2026-11-07')).not.toEqual(titles('2026-11-04'));
+  });
+
+  it('honours holidays you add yourself and ignores the calendar when there are no events', () => {
+    const own = buildScheduleIndex({
+      ...data,
+      events: [...data.events, { id: 'x', title: 'Family function', date: '2026-10-06', kind: 'holiday', important: true, notes: '', source: 'user' }],
+    });
+    expect(tasksForDate(own, '2026-10-06').map((t) => t.title)).not.toContain('College');
+    const none = buildScheduleIndex({ ...data, events: [] });
+    expect(tasksForDate(none, '2026-10-20').map((t) => t.title)).toContain('College');
+  });
+
+  it('keeps a College task you already changed on a holiday', () => {
+    const college = tasksForDate(buildScheduleIndex({ ...data, events: [] }), '2026-10-20').find((t) => t.title === 'College')!;
+    const stored = buildScheduleIndex({ ...data, tasks: [{ ...college, completed: true }] });
+    expect(tasksForDate(stored, '2026-10-20').filter((t) => t.title === 'College')).toHaveLength(1);
+  });
+});

@@ -68,8 +68,9 @@ export function TodayStats({ stats, sleepTargetMinutes, sleepHours, onLogSleep, 
                 <CheckCircle2 size={22} aria-hidden /> Done
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
-                <XCircle size={22} aria-hidden /> Not completed
+              // Wraps onto two lines in a narrow phone tile instead of spilling out.
+              <span className="flex items-center gap-1 text-xl leading-tight text-slate-700 sm:text-2xl dark:text-slate-300">
+                <XCircle size={22} aria-hidden className="shrink-0" /> <span className="min-w-0">Not completed</span>
               </span>
             )
           }

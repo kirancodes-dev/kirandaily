@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 
 // Freeze the clock at the plan start: Monday, October 5, 2026, 07:30 IST.
 const START = new Date('2026-10-05T07:30:00+05:30');
+// Late on the same day: every task of the day has started, so the time-lock lets all of them be ticked.
+const LATE = new Date('2026-10-05T23:30:00+05:30');
 
-async function open(page: Page, hash = '') {
-  await page.clock.install({ time: START });
+async function open(page: Page, hash = '', time = START) {
+  await page.clock.install({ time });
   await page.goto(`/#${hash}`);
 }
 
@@ -35,7 +37,7 @@ test('today dashboard starts with the plan and zero progress', async ({ page }) 
 });
 
 test('completing a task updates stats and survives a reload', async ({ page }) => {
-  await open(page);
+  await open(page, '', LATE);
   await page.getByRole('checkbox', { name: 'Mark Gym done' }).check();
   await expect(page.getByText('Done', { exact: true }).first()).toBeVisible();
   await page.getByRole('checkbox', { name: 'Mark Java done' }).check();
@@ -47,7 +49,7 @@ test('completing a task updates stats and survives a reload', async ({ page }) =
 });
 
 test('a day with 80% or more of its tasks done counts for the Day streak', async ({ page }) => {
-  await open(page);
+  await open(page, '', LATE);
   await expect(page.getByText('0-day streak')).toBeVisible();
   await expect(page.getByText('10 more tasks to reach 80% and keep the streak')).toBeVisible();
   for (const name of ['Wake up', 'Gym', 'Bath + breakfast', 'Get ready + travel', 'College', 'Travel + rest', 'College subject', 'Dinner', 'Java']) {
@@ -231,7 +233,7 @@ test('corrupted storage does not crash the app', async ({ page }) => {
 });
 
 test('progress page renders streaks, charts and reviews', async ({ page }) => {
-  await open(page);
+  await open(page, '', LATE);
   await page.getByRole('checkbox', { name: 'Mark Java done' }).check();
   await page.goto('/#/progress');
   await expect(page.getByRole('heading', { name: 'Streaks' })).toBeVisible();

@@ -1,8 +1,11 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Dumbbell, Flame, PartyPopper } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Flame, PartyPopper, Star, TreePalm } from 'lucide-react';
 import { useAppData } from '../../hooks/useAppData';
 import { dayStats } from '../../utils/calculations';
-import { formatHours, formatMonthYear, monthGrid, WEEKDAY_SHORT, WEEK_ORDER } from '../../utils/date';
+import { formatHours, formatMonthYear, monthDates, monthGrid, WEEKDAY_SHORT, WEEK_ORDER } from '../../utils/date';
+import { eventsByDate, isNotableOn, shortTitle } from '../../utils/events';
+import type { CalendarEvent } from '../../types/extras';
 import { Button, IconButton } from '../common/Button';
 import { isStreakDay } from '../../utils/streaks';
 import { scheduleConfig } from '../../config/schedule';
@@ -22,7 +25,36 @@ function pctTone(pct: number | null) {
   return 'bg-slate-300 dark:bg-slate-600';
 }
 
-/** Month grid. Each day shows completion %, study hours, gym status and completed tasks. */
+/** Holidays first, then important dates, then the rest. */
+function rankEvents(list: CalendarEvent[]): CalendarEvent[] {
+  const rank = (e: CalendarEvent) => (e.kind === 'holiday' ? 0 : e.important ? 1 : 2);
+  return [...list].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Small marker for a day's calendar events: palm (holiday) and/or star
+ * (important), or a dot (other). Holidays are never green: on this grid green
+ * means "tasks done".
+ */
+function EventMarker({ events }: { events: CalendarEvent[] }) {
+  const top = events[0];
+  const important = events.some((e) => e.important);
+  const holiday = events.some((e) => e.kind === 'holiday');
+  return (
+    <span className="flex w-full min-w-0 items-center gap-px text-[10px] font-medium leading-tight text-slate-700 dark:text-slate-300 sm:gap-1 sm:text-xs">
+      {holiday && <TreePalm size={11} aria-hidden className="shrink-0 text-slate-600 dark:text-slate-300" />}
+      {important && <Star size={11} aria-hidden className="shrink-0 fill-amber-400 text-amber-500 dark:fill-amber-300 dark:text-amber-300" />}
+      {!holiday && !important && <span aria-hidden className="mx-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />}
+      <span className="hidden min-w-0 truncate sm:inline">{shortTitle(top)}</span>
+      {events.length > 1 && <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">+{events.length - 1}</span>}
+    </span>
+  );
+}
+
+/**
+ * Month grid. Each day shows completion %, study hours, gym status and
+ * completed tasks, plus markers for calendar events (holidays, tests, important dates).
+ */
 export function MonthCalendar({ year, month, today, onChange }: Props) {
   const { stats, data } = useAppData();
   const navigate = useNavigate();
@@ -32,6 +64,10 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
     onChange(d.getFullYear(), d.getMonth() + 1);
   };
   const [ty, tm] = today.split('-').map(Number);
+  const eventMap = useMemo(() => {
+    const dates = monthDates(year, month);
+    return eventsByDate(data.events, dates[0], dates[dates.length - 1]);
+  }, [data.events, year, month]);
 
   return (
     <div className="space-y-3">
@@ -72,6 +108,8 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                 const beforePlan = d < data.settings.planStartDate;
                 const pct = past && !beforePlan ? s.completionPct : null;
                 const streakDay = past && !beforePlan && isStreakDay(s);
+                const evs = rankEvents((eventMap.get(d) ?? []).filter((e) => isNotableOn(e, d)));
+                const holiday = evs.some((e) => e.kind === 'holiday');
                 const label = [
                   d,
                   beforePlan ? 'before plan start' : null,
@@ -81,6 +119,11 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                   past ? `${s.completed} tasks completed` : `${s.total} tasks planned`,
                   streakDay ? 'streak day' : null,
                   s.special ? 'special day' : null,
+                  evs.length > 0
+                    ? `${evs.length === 1 ? 'event' : 'events'}: ${evs
+                        .map((e) => `${e.title}${e.kind === 'holiday' ? ' (holiday)' : ''}${e.important ? ' (important)' : ''}`)
+                        .join('; ')}`
+                    : null,
                 ]
                   .filter(Boolean)
                   .join(', ');
@@ -90,11 +133,17 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                       type="button"
                       onClick={() => navigate(`/?date=${d}`)}
                       aria-label={`Open ${label}`}
-                      className={`flex h-[84px] w-full flex-col rounded-xl border p-1 text-left sm:h-24 sm:p-1.5 ${
+                      className={`flex h-[100px] w-full flex-col overflow-hidden rounded-xl border p-1 text-left sm:h-[110px] sm:p-1.5 ${
                         d === today
                           ? 'border-brand-600 ring-1 ring-brand-600'
-                          : 'border-slate-200 dark:border-slate-800'
-                      } ${beforePlan ? 'opacity-50' : ''} bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800`}
+                          : holiday
+                            ? 'border-dashed border-slate-400 dark:border-slate-500'
+                            : 'border-slate-200 dark:border-slate-800'
+                      } ${beforePlan ? 'opacity-50' : ''} ${
+                        holiday
+                          ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700'
+                          : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800'
+                      }`}
                     >
                       <span className="flex w-full items-center justify-between">
                         <span className={`text-sm font-semibold ${d === today ? 'text-brand-700 dark:text-brand-300' : ''}`}>{Number(d.slice(8))}</span>
@@ -122,9 +171,10 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                           </span>
                         </>
                       )}
-                      {!beforePlan && !past && s.total > 0 && (
-                        <span className="mt-auto hidden text-xs text-slate-500 sm:inline">{s.total} planned</span>
-                      )}
+                      <span className="mt-auto flex w-full min-w-0 flex-col">
+                        {evs.length > 0 && <EventMarker events={evs} />}
+                        {!beforePlan && !past && s.total > 0 && <span className="hidden text-xs text-slate-500 sm:inline">{s.total} planned</span>}
+                      </span>
                     </button>
                   </td>
                 );
@@ -146,6 +196,15 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
         </span>
         <span className="inline-flex items-center gap-1">
           <PartyPopper size={14} aria-hidden /> special day
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Star size={14} aria-hidden className="fill-amber-400 text-amber-500" /> important date
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <TreePalm size={14} aria-hidden className="text-slate-600 dark:text-slate-300" /> holiday (grey day, dashed border)
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span aria-hidden className="h-2 w-2 rounded-full bg-sky-500" /> other calendar event
         </span>
       </div>
     </div>
