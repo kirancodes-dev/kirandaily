@@ -148,10 +148,20 @@ test('connect GitHub and LeetCode on the profile and see real numbers and graphs
   await expect(gh.getByText(/^Yesterday · \d+ contributions?$/)).toBeVisible();
   await gh.getByRole('button', { name: 'Previous day' }).click();
   await expect(gh.getByText(/^Sat, Oct 3 · \d+ contributions?$/)).toBeVisible();
-  const oct4 = gh.locator('rect[data-date="2026-10-04"]');
-  const [x, y] = await Promise.all([oct4.getAttribute('x'), oct4.getAttribute('y')]);
-  await graph.locator('svg').click({ position: { x: Number(x) + 6, y: Number(y) - 1.5 } });
+  // Squares are 12 px with a 4 px gap; a tap snaps to the square whose half of the gap it's in.
+  // Click events carry whole-pixel coordinates (Chrome truncates them) while the graph can sit at a
+  // fractional offset, so taps stay well clear of the half-way line between two squares.
+  const corner = async (date: string) => {
+    const rect = gh.locator(`rect[data-date="${date}"]`);
+    const [x, y] = await Promise.all([rect.getAttribute('x'), rect.getAttribute('y')]);
+    return { x: Number(x), y: Number(y) };
+  };
+  const oct4 = await corner('2026-10-04');
+  await graph.locator('svg').click({ position: { x: oct4.x + 6, y: oct4.y + 6 } }); // the middle of Oct 4
   await expect(gh.getByText(/^Yesterday · \d+ contributions?$/)).toBeVisible();
+  const oct3 = await corner('2026-10-03');
+  await graph.locator('svg').click({ position: { x: oct3.x + 6, y: oct3.y - 0.5 } }); // the gap just above Oct 3
+  await expect(gh.getByText(/^Sat, Oct 3 · \d+ contributions?$/)).toBeVisible();
   const loginBox = await gh.getByRole('link', { name: /@kiran-dev/ }).boundingBox();
   expect(loginBox!.height).toBeGreaterThanOrEqual(44);
   const repo = gh.getByRole('link', { name: /kiran-planner/ });
