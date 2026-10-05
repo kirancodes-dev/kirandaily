@@ -102,9 +102,56 @@ If you fork or rename the repo and the site doesn't appear, open **Settings → 
 
 Only one host is needed. You can delete the config files for the hosts you don't use.
 
-### Install on your phone
+### Install on iPhone and Mac
 
-Open the deployed URL in Chrome (Android) or Safari (iPhone), then choose **Add to Home screen** or **Install app**. It opens full-screen and works offline.
+- **iPhone (Safari):** open the site, tap **Share → Add to Home Screen**, then always open the planner from that icon. It runs full-screen, works offline, and only this Home Screen app can show notifications and an icon badge.
+- **Mac (Safari):** **File → Add to Dock**. **Chrome / Edge:** the install icon in the address bar (or **More → Install now** inside the app).
+- **More → Install on iPhone & Mac** in the app shows the same steps for the browser you're using.
+
+---
+
+## Daily use
+
+### Honest ticks and reminders
+
+- **No early ticks.** A task can be ticked only once it has **started**. Tapping it earlier shows *"Not yet — Java starts at 7:30 PM"*. You can still tick it any time later, and a tick made after the task ended is labelled *late*. Moving or editing a ticked task to a time that hasn't started yet removes the tick, so the record stays true. Turn this off in **Settings → Reminders & time-lock** if you ever need to.
+- **Reminders.** When a task starts you get a reminder (with **Start timer** for study tasks). When one ends without a tick you're asked *"Java ended — did you do it?"* with **Mark done**. **Needs attention** on Today lists unticked tasks that have ended, with **Mark done / Move / Skip**, and **Happening now** shows the current task.
+- **How the alerts reach you.** While the planner is open you get a toast and a short beep. In the background you get a system notification if you allowed them (**Settings → Reminders & time-lock → Enable notifications**). The Home Screen icon shows a badge with the number of tasks that ended without a tick.
+  - A website can't wake itself up when it's fully closed. There is no push server, so for alerts that always fire, **export your timetable to the Calendar app** (next section). Apple Calendar then reminds you even when the planner is closed.
+
+### Semester calendar and important dates
+
+- **Calendar** (in the sidebar on Mac, under **More** on iPhone) has the official **5th-semester calendar for AY 2026-27** built in. It includes registration, IA-1 (22–29 Oct), IA-2 (7–14 Dec), lab IA, the last working day (5 Jan), SEE (from 18 Jan) and every holiday.
+  - Tabs: **Upcoming**, **Semester**, **Important** (starred) and **Sync**.
+  - Star any date to mark it important, or add your own dates (birthdays, deadlines, events). You can keep the original PDF on the device too.
+- **The timetable follows the calendar.** On holidays the College block (and the trips to and from it) is left out, so a holiday never counts as a missed task. On the Saturdays that follow a weekday timetable (31 Oct, 28 Nov, 12 Dec, 26 Dec), Today shows that weekday's plan and study target. If a holiday is cancelled, change that date's type in Calendar.
+- **Apple / Google Calendar.** **Calendar → Sync → Add to Calendar** downloads `.ics` files: the semester dates, and your repeating timetable with an alert for each block (holidays and make-up Saturdays included). Open them on the iPhone or Mac to add them to Calendar. Google Calendar imports the events but not their alerts. It's a one-time copy: after you change the timetable, export again. **Import** reads events from another calendar's `.ics` file.
+- The built-in dates were typed from the official calendar PDF (the ECE copy, which uses the university-wide dates). The PDF gives two different start dates for the even semester: 15 Feb in its footer and 22 Feb in the list. The app uses 22 Feb and notes the conflict on that date.
+
+### Profile, activity graph and levels
+
+- **Profile** (tap your avatar): photo, name, headline, college, semester, bio and links (GitHub, LeetCode, LinkedIn, portfolio). Any photo is cropped and shrunk to a small 256×256 image before it's saved.
+- **Activity graph:** a GitHub-style square for every day, coloured by how much of that day you completed. Tap a day to open it.
+- **XP, levels and badges** come only from real, ticked work: tasks, high-priority tasks, study minutes, Day-streak days, perfect days, DSA problems and German words. Today shows a daily quote, your level and today's XP, and celebrates when you reach 80% and 100% of the day.
+
+### GitHub and LeetCode
+
+Add your usernames on **Profile** (or on the cards there and on the DSA page). The planner then shows:
+- **GitHub:** followers, repositories, your latest repositories and the contribution graph.
+- **LeetCode:** solved problems by difficulty, ranking and submission calendar.
+
+Stats are cached on the device for 6 hours and also shown offline. Only your username is sent, and only to these services. GitHub is called directly (60 requests per hour per network without a token). LeetCode has no official public API, so its stats come from free community APIs, tried in order. If they're all down, the card says so and keeps the last stats.
+
+### Keyboard shortcuts (Mac)
+
+- **1–5:** Today, Schedule, Study, Progress, More
+- **/** or **⌘K:** search
+- **N:** add a task
+- **[ / ]:** previous / next day
+- **T:** jump to today
+- **?:** the full list
+
+Shortcuts pause while you're typing.
 
 ---
 
@@ -168,7 +215,7 @@ Turn this on to keep your planner in the cloud and use the same data on your pho
 4. **Turn on Google sign-in.** Open **Build → Authentication → Get started → Sign-in method → Google → Enable** and pick your support email.
 5. **Allow your website to sign in.** In **Authentication → Settings → Authorized domains → Add domain**, enter `kirancodes-dev.github.io`. `localhost` is already allowed for `npm run dev`.
 6. **Create the database.** Open **Build → Firestore Database → Create database**, choose **Standard edition** and a location near you (e.g. `asia-south1 (Mumbai)`), and start in **production mode**.
-7. **Publish the security rules.** In Firestore → **Rules**, replace everything with the contents of [`firestore.rules`](firestore.rules), then click **Publish**. If you use the Firebase CLI instead, run `npx firebase-tools login`, then `npx firebase-tools deploy --only firestore:rules --project <your-project-id>`.
+7. **Publish the security rules.** (Do this again whenever `firestore.rules` changes. **v1.1 added rules for its new `ext` document**, which holds the profile, calendar dates and reminder settings. Until the new rules are published, that part can't sync and the sync icon shows a problem. Everything else keeps syncing.) In Firestore → **Rules**, replace everything with the contents of [`firestore.rules`](firestore.rules), then click **Publish**. If you use the Firebase CLI instead, run `npx firebase-tools login`, then `npx firebase-tools deploy --only firestore:rules --project <your-project-id>`.
 8. **Sign in from the app.** Open the app → **Settings → Cloud sync → Sign in with Google**. Do the same on your other devices with the same Google account.
 
 **First sign-in on a second device.** If that device also has its own data, the app asks whether to **merge both** (recommended), **use the cloud data**, or **use this device's data**.
@@ -191,7 +238,8 @@ npm run test:sync    # two "devices" syncing through the Auth + Firestore emulat
 - Data is validated with Zod on load:
   - If storage is corrupted, the app still opens. It keeps a backup copy of the corrupted data under `kiran-planner:corrupt-backup:<time>` and repairs what it can (invalid items are dropped, duplicate ids are renamed and the gym routine is restored if missing), then shows a message.
 - Without cloud sync, data is **per browser and per device**. Your phone and your laptop each have their own copy, and export/import moves data between them. With **cloud sync** on, all your signed-in devices share one copy (see above).
-- Nothing is sent anywhere unless you turn on cloud sync, and then only to your own Firebase project.
+- Nothing is sent anywhere unless you turn on cloud sync, and then only to your own Firebase project. The one exception is the GitHub and LeetCode cards, which send just your username to those services when you add it.
+- Some things stay on each device and are not in backups or sync: the GitHub/LeetCode stats cache (`kiran-planner:cache:*`), small UI memories such as which reminders were already shown (`kiran-planner:ui:*`), and the semester PDF you attach (IndexedDB).
 
 ### Backing up
 
@@ -228,11 +276,12 @@ GitHub Actions rebuilds the `gh-pages` branch (or Vercel/Netlify redeploys) auto
 
 ```
 .github/workflows/deploy.yml   GitHub Pages: lint → test → build → deploy
-e2e/app.spec.ts                Browser tests (mobile 360/412 + desktop)
+e2e/                           Browser tests (mobile 360/412, desktop, iPhone 17 402×874, Mac 1512×982)
+e2e-sync/                      Two-device cloud sync tests (Firebase emulators)
 public/                        Icons (favicon, PWA, Apple touch)
 src/
   config/schedule.ts           ★ Central timetable configuration
-  data/                        Default data: categories, goals, roadmaps, templates
+  data/                        Default data: categories, goals, roadmaps, templates, semester calendar
   types/                       TypeScript data model (task, study, subject, project, goal, …)
   utils/                       Pure logic (unit tested)
     date.ts                    Date/time helpers (local YYYY-MM-DD, HH:mm)
@@ -243,6 +292,10 @@ src/
     timer.ts                   Timestamp-based stopwatch + Pomodoro
     storage.ts, schema.ts      localStorage adapter, validation, repair, import/export
     search.ts                  Global search
+    timeGate.ts, reminders.ts  Time-lock (no early ticks) and reminder planning
+    events.ts, ics.ts          Calendar dates, holidays, .ics export/import
+    gamification.ts            XP, levels, badges, activity graph
+    integrations/              GitHub + LeetCode fetchers, validation and cache
   state/                       React providers (app data, study timer)
   hooks/                       useTasks, useStudyTimer, useLocalStorage, useProgress, …
   components/
@@ -254,9 +307,14 @@ src/
     progress/ charts/          Streaks, charts, weekly + monthly review
     roadmap/                   Java / DSA / German roadmap view
     settings/                  Settings sections (profile, routine, targets, data…)
+    reminders/                 Reminder engine, Needs attention / Happening now
+    calendar/                  Calendar page parts, export/import, PDF attachment
+    profile/                   Profile header, photo, badges, daily motivation
+    integrations/              GitHub and LeetCode cards
     common/                    Buttons, cards, modal, fields, tabs, progress bars
   pages/                       Today, Schedule, Study, Progress, More, Java, Dsa, German,
-                               Subjects (College), Cgpa, Projects, Goals, Notes, Search, Settings
+                               Subjects (College), Cgpa, Projects, Goals, Notes, Search, Settings,
+                               Profile, Calendar
 ```
 
 ## Notes on behaviour
