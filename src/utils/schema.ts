@@ -182,6 +182,54 @@ export const settingsSchema = z.object({
   planStartDate: isoDate,
 });
 
+/* ───────────── v1.1: profile details, calendar events, preferences ───────────── */
+
+const shortText = (max: number) => z.string().max(max);
+
+export const profileExtraSchema = z.object({
+  photo: z.union([z.literal(''), z.string().max(400_000).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/)]),
+  headline: shortText(120),
+  college: shortText(160),
+  semester: z.number().int().min(1).max(12).nullable(),
+  bio: shortText(1000),
+  links: z.object({
+    github: shortText(100),
+    leetcode: shortText(100),
+    linkedin: shortText(300),
+    portfolio: shortText(300),
+  }),
+});
+
+export const eventSchema = z
+  .object({
+    id,
+    title: z.string().min(1).max(300),
+    date: isoDate,
+    endDate: isoDate.optional(),
+    startTime: time.optional(),
+    endTime: time.optional(),
+    kind: z.enum(['exam', 'test', 'holiday', 'deadline', 'event', 'class', 'personal', 'other']),
+    important: z.boolean(),
+    notes: shortText(2000),
+    source: z.enum(['semester', 'user', 'import']),
+  })
+  .refine((e) => !e.endDate || e.endDate >= e.date, 'End date is before the start date');
+
+export const prefsSchema = z.object({
+  timeGate: z.boolean(),
+  reminders: z.boolean(),
+  reminderSound: z.boolean(),
+  remindBeforeMinutes: z.number().int().min(0).max(120),
+});
+
+export const semesterInfoSchema = z.object({
+  title: shortText(200),
+  startDate: isoDate,
+  endDate: isoDate,
+  notes: z.array(shortText(500)).max(30),
+  sourceLabel: shortText(300),
+});
+
 /** Array-valued collections and their item schemas. */
 export const collectionSchemas = {
   categories: categorySchema,
@@ -196,6 +244,7 @@ export const collectionSchemas = {
   goals: goalSchema,
   notes: noteSchema,
   weeklyReviews: weeklyReviewSchema,
+  events: eventSchema,
 } as const;
 
 /** Object-valued sections. */
@@ -204,11 +253,19 @@ export const sectionSchemas = {
   settings: settingsSchema,
   roadmaps: roadmapsSchema,
   cgpa: cgpaSchema,
+  profileExtra: profileExtraSchema,
+  prefs: prefsSchema,
+  semesterInfo: semesterInfoSchema,
 } as const;
+
+/** Keys added after v1.0 – optional so older backups and saved data still load (defaults fill them in). */
+export const OPTIONAL_KEYS = new Set(['events', 'profileExtra', 'prefs', 'semesterInfo']);
 
 export const appDataSchema = z.object({
   version: z.literal(1),
-  ...sectionSchemas,
-  ...Object.fromEntries(Object.entries(collectionSchemas).map(([k, s]) => [k, z.array(s)])),
+  ...Object.fromEntries(Object.entries(sectionSchemas).map(([k, s]) => [k, OPTIONAL_KEYS.has(k) ? s.optional() : s])),
+  ...Object.fromEntries(
+    Object.entries(collectionSchemas).map(([k, s]) => [k, OPTIONAL_KEYS.has(k) ? z.array(s).optional() : z.array(s)]),
+  ),
   exclusions: z.array(z.string()),
 });

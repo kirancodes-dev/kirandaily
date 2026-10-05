@@ -16,6 +16,9 @@ import { Button } from '../components/common/Button';
 import { Banner, EmptyState } from '../components/common/Feedback';
 import { addDays, dayOfWeek, durationMinutes, formatLongDate, greeting, isValidISODate } from '../utils/date';
 import { activeTemplateByKey } from '../utils/schedule';
+import { TodayAttention } from '../components/reminders/TodayAttention';
+import { TodayUpcoming } from '../components/calendar/TodayUpcoming';
+import { TodayMotivation } from '../components/profile/TodayMotivation';
 
 export default function Today() {
   const today = useToday();
@@ -56,6 +59,9 @@ export default function Today() {
 
       {invalidDate && <Banner tone="warning">That date link was not valid, so today is shown instead.</Banner>}
 
+      <TodayMotivation date={date} today={today} />
+      <TodayAttention date={date} today={today} />
+
       {log?.special ? (
         <Banner tone="info">
           <span className="font-semibold">{SPECIAL_LABELS[log.special.kind]}</span>
@@ -94,6 +100,8 @@ export default function Today() {
         streak={date === today ? streaks.overall : undefined}
         isToday={date === today}
       />
+
+      <TodayUpcoming date={date} today={today} />
 
       <section aria-labelledby="schedule-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

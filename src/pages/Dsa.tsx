@@ -6,6 +6,7 @@ import { useToday } from '../hooks/useToday';
 import { useDsaStats } from '../hooks/useProgress';
 import { useCategoryTotal, useRoadmap } from '../hooks/useRoadmap';
 import { RoadmapView } from '../components/roadmap/RoadmapView';
+import { LeetCodeCard } from '../components/integrations/LeetCodeCard';
 import { PageHeader } from '../components/common/Feedback';
 import { StatTile } from '../components/common/Card';
 import { Button, IconButton } from '../components/common/Button';
@@ -46,6 +47,7 @@ export default function Dsa() {
         <StatTile label="Topics completed" value={`${progress.completed}/${progress.total}`} />
         <StatTile label="Time studied" value={formatMinutes(minutes)} />
       </div>
+      <LeetCodeCard />
       <ProgressBar value={progress.pct} label="DSA roadmap" />
       <RoadmapView
         id="dsa"

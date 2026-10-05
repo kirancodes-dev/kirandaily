@@ -7,6 +7,7 @@ import { SubjectSettings } from '../components/settings/SubjectSettings';
 import { CategorySettings } from '../components/settings/CategorySettings';
 import { RoadmapSettings } from '../components/settings/RoadmapSettings';
 import { DataSettings } from '../components/settings/DataSettings';
+import { ReminderSettings } from '../components/settings/ReminderSettings';
 
 export default function Settings() {
   return (
@@ -14,6 +15,7 @@ export default function Settings() {
       <PageHeader title="Settings" />
       <CloudSyncSettings />
       <ProfileSettings />
+      <ReminderSettings />
       <RoutineSettings />
       <TargetSettings />
       <SubjectSettings />

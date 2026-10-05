@@ -1,5 +1,7 @@
 import {
   BarChart3,
+  CalendarRange,
+  UserRound,
   BookOpen,
   CalendarDays,
   Coffee,
@@ -36,6 +38,8 @@ export const PRIMARY_NAV: NavItem[] = [
 
 /** Pages listed under "More" (and in the desktop sidebar). */
 export const MORE_NAV: NavItem[] = [
+  { to: '/profile', label: 'Profile', icon: UserRound, description: 'Photo, links, levels and badges' },
+  { to: '/calendar', label: 'Calendar', icon: CalendarRange, description: 'Semester dates, exams, important days' },
   { to: '/java', label: 'Java', icon: Coffee, description: 'Roadmap, phases and topics' },
   { to: '/dsa', label: 'DSA', icon: Code2, description: 'Topics and problems solved' },
   { to: '/german', label: 'German', icon: Languages, description: 'A1 → A2 → B1, vocabulary' },

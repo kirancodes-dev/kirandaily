@@ -6,6 +6,7 @@ import { createDefaultTemplates } from './defaultSchedule';
 import { createDsaRoadmap } from './dsaRoadmap';
 import { createGermanRoadmap } from './germanRoadmap';
 import { createJavaRoadmap } from './javaRoadmap';
+import { createSemesterEvents, defaultSemesterInfo } from './semesterCalendar';
 
 export const DATA_VERSION = 1 as const;
 
@@ -50,5 +51,16 @@ export function createDefaultData(): AppData {
     notes: [],
     weeklyReviews: [],
     cgpa: { ...scheduleConfig.cgpa, semesters: [] },
+    profileExtra: {
+      photo: '',
+      headline: 'B.Tech CSE · 3rd year',
+      college: '',
+      semester: 5,
+      bio: '',
+      links: { github: '', leetcode: '', linkedin: '', portfolio: '' },
+    },
+    events: createSemesterEvents(),
+    prefs: { timeGate: true, reminders: true, reminderSound: true, remindBeforeMinutes: 0 },
+    semesterInfo: { ...defaultSemesterInfo, notes: [...defaultSemesterInfo.notes] },
   };
 }

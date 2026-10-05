@@ -51,3 +51,23 @@ export interface SyncValue {
 }
 
 export const SyncContext = createContext<SyncValue | null>(null);
+
+export type ToastTone = 'info' | 'success' | 'warning' | 'error';
+
+export interface ToastInput {
+  /** Same id replaces an existing toast (no duplicates). */
+  id?: string;
+  title: string;
+  body?: string;
+  tone?: ToastTone;
+  action?: { label: string; onClick: () => void };
+  /** Milliseconds before it hides; 0 = stays until dismissed. Default 5000. */
+  duration?: number;
+}
+
+export interface ToastValue {
+  toast: (t: ToastInput) => string;
+  dismiss: (id: string) => void;
+}
+
+export const ToastContext = createContext<ToastValue | null>(null);

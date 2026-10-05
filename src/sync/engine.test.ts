@@ -124,7 +124,7 @@ describe('chunks', () => {
     d = complete('Java', '2026-11-02')(d);
     d = addNote('n1', 'Loops', '2026-12-01')(d);
     const chunks = splitData(d);
-    expect([...chunks.keys()].sort()).toEqual(['core', 'm-2026-10', 'm-2026-11', 'm-2026-12']);
+    expect([...chunks.keys()].sort()).toEqual(['core', 'ext', 'm-2026-10', 'm-2026-11', 'm-2026-12']);
     const back = repairData(joinChunks(new Map([...chunks].map(([k, v]) => [k, toPlain(v)])))).data;
     expect(stableStringify(back)).toBe(stableStringify(d));
   });
@@ -143,6 +143,18 @@ describe('chunks', () => {
     expect(mergeChunk('core', base.get('core'), base.get('core'))).toEqual(base.get('core'));
   });
 
+  it('keeps profile, events and prefs in the ext chunk and merges events by id', () => {
+    const d = createDefaultData();
+    d.profileExtra.links.github = 'kiran';
+    const ext = splitData(d).get('ext') as { profileExtra: { links: { github: string } }; events: { id: string }[] };
+    expect(ext.profileExtra.links.github).toBe('kiran');
+    expect(ext.events.length).toBeGreaterThan(30);
+    const mine = { ...ext, events: [...ext.events, { id: 'mine' }] };
+    const theirs = { ...ext, events: [...ext.events, { id: 'theirs' }] };
+    const merged = mergeChunk('ext', mine as never, theirs as never) as { events: { id: string }[] };
+    expect(merged.events.map((e) => e.id)).toEqual(expect.arrayContaining(['mine', 'theirs']));
+  });
+
   it('knows a fresh install', () => {
     expect(isPristine(createDefaultData())).toBe(true);
     expect(isPristine(addNote('n', 'x')(createDefaultData()))).toBe(false);
@@ -157,7 +169,7 @@ describe('sync engine', () => {
     const a = device(server, complete('Gym')(createDefaultData()));
     await a.engine.start('kiran');
     await settle();
-    expect(server.docs.get('kiran')!.size).toBe(2); // core + October
+    expect(server.docs.get('kiran')!.size).toBe(3); // core + ext + October
     expect(a.state.status.state).toBe('synced');
 
     const b = device(server); // fresh phone
@@ -290,6 +302,16 @@ describe('sync engine', () => {
     if (b.state.status.state === 'needs-choice') await b.engine.resolveChoice('merge');
     await settle();
     expect(b.state.data.notes.map((n) => n.title)).toEqual(['While B signed out']);
+  });
+
+  it('ignores cloud chunks it does not understand (written by a newer app version)', async () => {
+    const server = new FakeServer();
+    server.put('kiran', { id: 'future-feature', data: { x: 1 } as never, hash: 'h', editedAt: 1, device: 'other' });
+    const a = device(server, addNote('n1', 'mine')(createDefaultData()));
+    await a.engine.start('kiran');
+    await settle();
+    expect(server.docs.get('kiran')!.get('future-feature')!.data).toEqual({ x: 1 }); // untouched
+    expect(a.state.data.notes).toHaveLength(1);
   });
 
   it('reports cloud errors and retries the chunk later', async () => {

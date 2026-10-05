@@ -3,6 +3,7 @@ import { HashRouter, Route, Routes } from 'react-router-dom';
 import { AppDataProvider } from './state/AppDataContext';
 import { TimerProvider } from './state/TimerContext';
 import { SyncProvider } from './state/SyncContext';
+import { ToastProvider } from './state/ToastContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import Today from './pages/Today';
@@ -22,6 +23,8 @@ import Notes from './pages/Notes';
 import Search from './pages/Search';
 import Settings from './pages/Settings';
 import NotFound from './pages/NotFound';
+import Profile from './pages/Profile';
+import Calendar from './pages/Calendar';
 
 /**
  * HashRouter keeps deep links working on any static host (GitHub Pages
@@ -32,6 +35,7 @@ export default function App() {
     <ErrorBoundary>
       <AppDataProvider>
         <SyncProvider>
+        <ToastProvider>
         <TimerProvider>
           <HashRouter>
             <Routes>
@@ -58,11 +62,14 @@ export default function App() {
                 <Route path="notes" element={<Notes />} />
                 <Route path="search" element={<Search />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="calendar" element={<Calendar />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
           </HashRouter>
         </TimerProvider>
+        </ToastProvider>
         </SyncProvider>
       </AppDataProvider>
     </ErrorBoundary>

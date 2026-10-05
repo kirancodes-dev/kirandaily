@@ -80,4 +80,27 @@ describe('storage', () => {
       expect(r.warnings.join(' ')).toMatch(/Duplicate id/);
     }
   });
+
+  it('loads data saved by v1.0 (before profile/events/prefs existed) without warnings', () => {
+    const v10 = createDefaultData() as unknown as Record<string, unknown>;
+    for (const k of ['profileExtra', 'events', 'prefs', 'semesterInfo']) delete v10[k];
+    const { store, adapter } = memoryAdapter(JSON.stringify(v10));
+    const result = loadData(adapter);
+    expect(result.warnings).toEqual([]);
+    expect(store.backups).toHaveLength(0);
+    expect(result.data.events.length).toBeGreaterThan(30); // semester calendar added
+    expect(result.data.prefs.timeGate).toBe(true);
+    // Old backups still import.
+    const imported = parseImport(JSON.stringify({ app: 'kiran-planner', exportedAt: '', data: v10 }));
+    expect(imported.ok).toBe(true);
+  });
+
+  it('rejects a profile photo that is not an image data URL', () => {
+    const data = createDefaultData();
+    const bad = { ...data, profileExtra: { ...data.profileExtra, photo: 'javascript:alert(1)' } };
+    expect(parseImport(JSON.stringify(bad)).ok).toBe(false);
+    const { data: repaired, warnings } = repairData(bad);
+    expect(repaired.profileExtra.photo).toBe('');
+    expect(warnings.join(' ')).toMatch(/profileExtra/);
+  });
 });

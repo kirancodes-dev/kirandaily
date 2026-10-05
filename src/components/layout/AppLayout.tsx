@@ -10,6 +10,9 @@ import { formatClock } from '../../utils/timer';
 import { useApplyTheme } from '../../hooks/useTheme';
 import { SyncBadge } from '../sync/SyncBadge';
 import { SyncChoiceDialog } from '../sync/SyncChoiceDialog';
+import { Avatar } from '../profile/Avatar';
+import { ReminderEngine } from '../reminders/ReminderEngine';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 
 function isActive(item: NavItem, pathname: string) {
   const path = item.to.split('?')[0];
@@ -59,7 +62,8 @@ function TimerPill() {
 
 export function AppLayout() {
   useApplyTheme();
-  const { warnings, dismissWarnings, saveError } = useAppData();
+  useKeyboardShortcuts();
+  const { data, warnings, dismissWarnings, saveError } = useAppData();
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
 
@@ -83,10 +87,20 @@ export function AppLayout() {
 
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-1 overflow-y-auto border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:flex">
-        <div className="mb-4 flex items-center gap-2 px-2">
+        <div className="mb-2 flex items-center gap-2 px-2">
           <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="h-8 w-8" />
           <span className="text-lg font-bold">Kiran Planner</span>
         </div>
+        <NavLink
+          to="/profile"
+          className="mb-3 flex min-h-touch items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <Avatar size={36} />
+          <span className="min-w-0">
+            <span className="block truncate font-semibold">{data.profile.name}</span>
+            <span className="block truncate text-xs text-slate-600 dark:text-slate-400">{data.profileExtra.headline || 'View profile'}</span>
+          </span>
+        </NavLink>
         <nav aria-label="Main" className="flex flex-col gap-1">
           {PRIMARY_NAV.filter((n) => n.to !== '/more').map((item) => (
             <SidebarLink key={item.to} item={item} />
@@ -116,6 +130,9 @@ export function AppLayout() {
                 <Search size={22} aria-hidden />
               </button>
             )}
+            <NavLink to="/profile" aria-label="Your profile" className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-xl lg:hidden">
+              <Avatar size={30} />
+            </NavLink>
           </div>
         </header>
 
@@ -140,6 +157,7 @@ export function AppLayout() {
       </div>
 
       <SyncChoiceDialog />
+      <ReminderEngine />
 
       {/* Mobile bottom navigation */}
       <nav

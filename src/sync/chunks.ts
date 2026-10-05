@@ -6,6 +6,10 @@
  *   m-YYYY-MM   – everything dated in that month: tasks, deleted-task
  *                 markers, day logs, study sessions, DSA/German logs,
  *                 notes and weekly reviews
+ *   ext         – added in v1.1: profile details (photo, links), calendar
+ *                 events (semester calendar + important dates), preferences.
+ *                 A separate chunk so older app versions, which don't know
+ *                 these fields, ignore it instead of overwriting it.
  *
  * Monthly chunks keep every document far below Firestore's 1 MiB limit,
  * and a day's changes only touch one or two small documents.
@@ -16,13 +20,16 @@ import { createDefaultData } from '../data/defaultData';
 
 export const CORE_KEYS = ['profile', 'settings', 'categories', 'templates', 'subjects', 'roadmaps', 'cgpa', 'goals', 'projects'] as const;
 export const MONTH_KEYS = ['tasks', 'exclusions', 'dayLogs', 'sessions', 'problemLogs', 'germanLogs', 'notes', 'weeklyReviews'] as const;
+export const EXT_KEYS = ['profileExtra', 'events', 'prefs', 'semesterInfo'] as const;
 
 export type CoreChunk = Pick<AppData, (typeof CORE_KEYS)[number]>;
 export type MonthChunk = Pick<AppData, (typeof MONTH_KEYS)[number]>;
-export type ChunkData = CoreChunk | MonthChunk;
+export type ExtChunk = Pick<AppData, (typeof EXT_KEYS)[number]>;
+export type ChunkData = CoreChunk | MonthChunk | ExtChunk;
 export type Chunks = Map<string, ChunkData>;
 
 export const CORE_ID = 'core';
+export const EXT_ID = 'ext';
 const FALLBACK_MONTH = '0000-00';
 
 export function monthChunkId(date: string | undefined): string {
@@ -30,16 +37,16 @@ export function monthChunkId(date: string | undefined): string {
 }
 
 export function isChunkId(id: string): boolean {
-  return id === CORE_ID || /^m-\d{4}-\d{2}$/.test(id);
+  return id === CORE_ID || id === EXT_ID || /^m-\d{4}-\d{2}$/.test(id);
 }
 
 export function emptyMonth(): MonthChunk {
   return { tasks: [], exclusions: [], dayLogs: [], sessions: [], problemLogs: [], germanLogs: [], notes: [], weeklyReviews: [] };
 }
 
-/** Empty value for a chunk id (core has no "empty", it is always present). */
+/** Empty value for a chunk id (core and ext have no "empty", they are always present). */
 export function emptyChunk(id: string): ChunkData | null {
-  return id === CORE_ID ? null : emptyMonth();
+  return id === CORE_ID || id === EXT_ID ? null : emptyMonth();
 }
 
 /** Month an item belongs to. */
@@ -57,6 +64,9 @@ export function splitData(data: AppData): Chunks {
   const core = {} as Record<string, unknown>;
   for (const k of CORE_KEYS) core[k] = data[k];
   chunks.set(CORE_ID, core as unknown as CoreChunk);
+  const ext = {} as Record<string, unknown>;
+  for (const k of EXT_KEYS) ext[k] = data[k];
+  chunks.set(EXT_ID, ext as unknown as ExtChunk);
   for (const key of MONTH_KEYS) {
     for (const item of data[key] as unknown[]) {
       const id = monthChunkId(itemDate(key, item));
@@ -76,8 +86,10 @@ export function joinChunks(chunks: Chunks, fallback: AppData = createDefaultData
   const core = (chunks.get(CORE_ID) ?? {}) as Partial<CoreChunk>;
   const out: Record<string, unknown> = { version: 1 };
   for (const k of CORE_KEYS) out[k] = core[k] ?? fallback[k];
+  const ext = (chunks.get(EXT_ID) ?? {}) as Partial<ExtChunk>;
+  for (const k of EXT_KEYS) out[k] = ext[k] ?? fallback[k];
   for (const k of MONTH_KEYS) out[k] = [];
-  const ids = [...chunks.keys()].filter((id) => id !== CORE_ID).sort();
+  const ids = [...chunks.keys()].filter((id) => id !== CORE_ID && id !== EXT_ID).sort();
   for (const id of ids) {
     const month = chunks.get(id) as Partial<MonthChunk>;
     for (const k of MONTH_KEYS) {
@@ -142,6 +154,11 @@ const byId = (x: unknown) => String((x as { id?: unknown }).id);
 export function mergeChunk(id: string, local: ChunkData | undefined, remote: ChunkData | undefined): ChunkData | undefined {
   if (!local) return remote;
   if (!remote) return local;
+  if (id === EXT_ID) {
+    const l = local as ExtChunk;
+    const r = remote as ExtChunk;
+    return { ...l, events: unionBy(l.events ?? [], r.events ?? [], byId) };
+  }
   if (id === CORE_ID) {
     const l = local as CoreChunk;
     const r = remote as CoreChunk;

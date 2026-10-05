@@ -6,6 +6,7 @@ import type { Project } from './project';
 import type { Goal } from './goal';
 import type { Note } from './note';
 import type { WeeklyReview } from './review';
+import type { CalendarEvent, Prefs, ProfileExtra, SemesterInfo } from './extras';
 
 export type ThemePref = 'light' | 'dark' | 'system';
 
@@ -50,4 +51,10 @@ export interface AppData {
   notes: Note[];
   weeklyReviews: WeeklyReview[];
   cgpa: CgpaData;
+  /* ── added in v1.1 (synced in the "ext" chunk) ── */
+  profileExtra: ProfileExtra;
+  /** Semester calendar events and personal important dates. */
+  events: CalendarEvent[];
+  prefs: Prefs;
+  semesterInfo: SemesterInfo;
 }

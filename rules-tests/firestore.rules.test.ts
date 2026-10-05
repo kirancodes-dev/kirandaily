@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { deleteDoc, doc, getDoc, getDocs, collection, runTransaction, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore';
 import { createDefaultData } from '../src/data/defaultData';
-import { splitData, toPlain, chunkHash, type CoreChunk, type MonthChunk } from '../src/sync/chunks';
+import { splitData, toPlain, chunkHash, type CoreChunk, type ExtChunk, type MonthChunk } from '../src/sync/chunks';
 
 let env: RulesTestEnvironment;
 
@@ -12,6 +12,7 @@ data.notes.push({ id: 'n1', title: 'Loops', content: 'for / while', category: 'j
 const chunks = splitData(data);
 const core = toPlain(chunks.get('core')!) as CoreChunk;
 const month = toPlain(chunks.get('m-2026-10')!) as MonthChunk;
+const ext = toPlain(chunks.get('ext')!) as ExtChunk;
 
 function chunkDoc(body: unknown, extra: Record<string, unknown> = {}) {
   return { v: 1, hash: chunkHash(body as never), editedAt: Date.now(), device: 'device_test', data: body, updatedAt: serverTimestamp(), ...extra };
@@ -35,6 +36,7 @@ describe('owner access', () => {
     const db = kiran();
     await assertSucceeds(setDoc(doc(db, 'users/kiran/chunks/core'), chunkDoc(core)));
     await assertSucceeds(setDoc(doc(db, 'users/kiran/chunks/m-2026-10'), chunkDoc(month)));
+    await assertSucceeds(setDoc(doc(db, 'users/kiran/chunks/ext'), chunkDoc(ext)));
     await assertSucceeds(getDoc(doc(db, 'users/kiran/chunks/core')));
     await assertSucceeds(getDocs(collection(db, 'users/kiran/chunks')));
     await assertSucceeds(setDoc(doc(db, 'users/kiran/chunks/m-2026-10'), chunkDoc({ ...month, notes: [] })));
@@ -101,6 +103,10 @@ describe('attacks that must fail', () => {
     const tooManyDays = Array.from({ length: 32 }, (_, i) => ({ date: `2026-10-${String((i % 31) + 1).padStart(2, '0')}` }));
     await assertFails(setDoc(doc(db, 'users/kiran/chunks/m-2026-10'), chunkDoc({ ...month, dayLogs: tooManyDays })));
     await assertFails(setDoc(doc(db, 'users/kiran/chunks/m-2026-10'), chunkDoc({ ...month, tasks: 'lots' })));
+    await assertFails(setDoc(doc(db, 'users/kiran/chunks/ext'), chunkDoc({ ...ext, admin: true })));
+    await assertFails(setDoc(doc(db, 'users/kiran/chunks/ext'), chunkDoc(month)));
+    await assertFails(setDoc(doc(db, 'users/kiran/chunks/ext'), chunkDoc({ ...ext, profileExtra: { ...ext.profileExtra, photo: 'x'.repeat(400_001) } })));
+    await assertFails(setDoc(doc(other(), 'users/kiran/chunks/ext'), chunkDoc(ext)));
   });
 
   it('never allows deletes or other collections', async () => {
