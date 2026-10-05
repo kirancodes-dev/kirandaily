@@ -15,12 +15,12 @@
  */
 // ⬇️  Paste your Firebase web app config here (Firebase Console → Project settings → Your apps).
 const pastedConfig = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: '',
+  apiKey: 'AIzaSyDWUsRc_dNLS8-vc416mvqwgUfypOKnLiQ',
+  authDomain: 'agenda-e8a71.firebaseapp.com',
+  projectId: 'agenda-e8a71',
+  storageBucket: 'agenda-e8a71.firebasestorage.app',
+  messagingSenderId: '734119157016',
+  appId: '1:734119157016:web:ba1ebaca10f2d1f01ad26d',
 };
 
 export const firebaseConfig = {
