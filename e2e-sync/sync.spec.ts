@@ -1,6 +1,10 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
-// Uses the real clock: the tasks below (wake up, gym, breakfast, sleep) exist every day.
+// Uses the real clock (a faked one would make the emulator's sign-in tokens look
+// expired or not yet valid). The tasks are ticked on the plan's first day, which is
+// in the past, so the time-lock always allows them; that day has wake up, gym,
+// breakfast and sleep like every other day.
+const DAY = '/#/?date=2026-10-05';
 
 async function newDevice(browser: Browser) {
   const context = await browser.newContext();
@@ -23,12 +27,16 @@ async function signIn(page: Page, email: string): Promise<string> {
 }
 
 async function tick(page: Page, title: string) {
-  await page.goto('/#/');
-  await page.getByRole('checkbox', { name: `Mark ${title} done` }).check();
+  await page.goto(DAY);
+  // Keyboard, so a reminder toast over the list can't take the tap.
+  const box = page.getByRole('checkbox', { name: `Mark ${title} done` });
+  await box.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('checkbox', { name: `Mark ${title} not done` })).toBeChecked();
 }
 
 async function expectDone(page: Page, titles: string[]) {
-  await page.goto('/#/');
+  await page.goto(DAY);
   for (const t of titles) await expect(page.getByRole('checkbox', { name: `Mark ${t} not done` })).toBeChecked({ timeout: 20_000 });
 }
 
@@ -51,8 +59,15 @@ test('two devices stay in sync, including offline edits', async ({ browser }) =>
   // Live: phone change appears on the laptop without reloading.
   await tick(phone.page, 'Wake up');
   await expectSynced(phone.page);
-  await laptop.page.goto('/#/');
+  await laptop.page.goto(DAY);
   await expect(laptop.page.getByRole('checkbox', { name: 'Mark Wake up not done' })).toBeChecked({ timeout: 20_000 });
+
+  // v1.1 data (profile, calendar, reminder settings) syncs too, through its own 'ext' document.
+  await phone.page.goto('/#/settings');
+  await phone.page.getByLabel('Remind me').selectOption('15');
+  await expectSynced(phone.page);
+  await laptop.page.goto('/#/settings');
+  await expect(laptop.page.getByLabel('Remind me')).toHaveValue('15', { timeout: 20_000 });
 
   // Offline on the laptop while the phone keeps working → both edits survive.
   await laptop.context.setOffline(true);
