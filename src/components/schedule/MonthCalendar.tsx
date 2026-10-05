@@ -1,9 +1,11 @@
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Dumbbell, PartyPopper } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Dumbbell, Flame, PartyPopper } from 'lucide-react';
 import { useAppData } from '../../hooks/useAppData';
 import { dayStats } from '../../utils/calculations';
 import { formatHours, formatMonthYear, monthGrid, WEEKDAY_SHORT, WEEK_ORDER } from '../../utils/date';
 import { Button, IconButton } from '../common/Button';
+import { isStreakDay } from '../../utils/streaks';
+import { scheduleConfig } from '../../config/schedule';
 
 interface Props {
   year: number;
@@ -69,6 +71,7 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                 const past = d <= today;
                 const beforePlan = d < data.settings.planStartDate;
                 const pct = past && !beforePlan ? s.completionPct : null;
+                const streakDay = past && !beforePlan && isStreakDay(s);
                 const label = [
                   d,
                   beforePlan ? 'before plan start' : null,
@@ -76,6 +79,7 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                   past ? `${formatHours(s.studyMinutes)} hours study` : null,
                   s.gymPlanned ? (s.gymDone ? 'gym done' : past ? 'gym not done' : 'gym planned') : null,
                   past ? `${s.completed} tasks completed` : `${s.total} tasks planned`,
+                  streakDay ? 'streak day' : null,
                   s.special ? 'special day' : null,
                 ]
                   .filter(Boolean)
@@ -94,21 +98,27 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                     >
                       <span className="flex w-full items-center justify-between">
                         <span className={`text-sm font-semibold ${d === today ? 'text-brand-700 dark:text-brand-300' : ''}`}>{Number(d.slice(8))}</span>
-                        {s.special && <PartyPopper size={12} aria-hidden className="text-fuchsia-600" />}
+                        <span className="flex items-center gap-0.5">
+                          {streakDay && <Flame size={13} aria-hidden className="text-orange-500" />}
+                          {s.special && <PartyPopper size={12} aria-hidden className="text-fuchsia-600" />}
+                        </span>
                       </span>
                       {!beforePlan && past && (
                         <>
                           <span className="text-[11px] font-semibold tabular-nums sm:text-xs">{pct === null ? '—' : `${pct}%`}</span>
                           <span className={`my-0.5 h-1 w-full rounded-full ${pctTone(pct)}`} aria-hidden />
                           <span className="text-[11px] tabular-nums text-slate-600 dark:text-slate-400 sm:text-xs">{formatHours(s.studyMinutes)}h</span>
-                          <span className="flex items-center gap-0.5 text-[11px] text-slate-600 dark:text-slate-400 sm:text-xs">
+                          <span className="flex w-full min-w-0 items-center overflow-hidden text-[10px] leading-tight text-slate-600 dark:text-slate-400 sm:gap-0.5 sm:text-xs">
                             {s.gymPlanned && (
                               <span className={`inline-flex items-center ${s.gymDone ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`}>
-                                <Dumbbell size={11} aria-hidden />
+                                <Dumbbell size={10} aria-hidden className="shrink-0" />
                                 {s.gymDone ? '✓' : '–'}
                               </span>
                             )}
-                            <span className="ml-auto tabular-nums">{s.completed}✓</span>
+                            <span className="ml-auto tabular-nums">
+                              {s.completed}
+                              <span className="hidden sm:inline">✓</span>
+                            </span>
                           </span>
                         </>
                       )}
@@ -130,7 +140,10 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
         <span className="inline-flex items-center gap-1">
           <Dumbbell size={14} aria-hidden />✓ gym done, – not done
         </span>
-        <span>n✓ = tasks completed</span>
+        <span>last number = tasks completed</span>
+        <span className="inline-flex items-center gap-1">
+          <Flame size={14} aria-hidden className="text-orange-500" /> {scheduleConfig.streakDayThreshold}%+ day (streak)
+        </span>
         <span className="inline-flex items-center gap-1">
           <PartyPopper size={14} aria-hidden /> special day
         </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeStreak, streakFor } from './streaks';
+import { computeStreak, isStreakDay, streakFor, tasksToStreakDay } from './streaks';
 import { createDefaultData } from '../data/defaultData';
 import { buildStatsContext, getDayTasks } from './calculations';
 import { eachDate } from './date';
@@ -39,5 +39,30 @@ describe('streaks', () => {
       ],
     };
     expect(streakFor(buildStatsContext(data), 'gym', '2026-10-08').current).toBe(2);
+  });
+
+  it('counts a Day-streak day only at 80 % or more of the tasks', () => {
+    expect(isStreakDay({ total: 12, skipped: 0, completed: 9 })).toBe(false); // 75 %
+    expect(isStreakDay({ total: 12, skipped: 0, completed: 10 })).toBe(true); // 83 %
+    expect(isStreakDay({ total: 10, skipped: 0, completed: 8 })).toBe(true); // exactly 80 %
+    expect(isStreakDay({ total: 12, skipped: 2, completed: 8 })).toBe(true); // skipped tasks don't count
+    expect(isStreakDay({ total: 0, skipped: 0, completed: 0 })).toBe(false);
+    expect(tasksToStreakDay({ total: 12, skipped: 0, completed: 4 })).toBe(6);
+    expect(tasksToStreakDay({ total: 10, skipped: 0, completed: 7 })).toBe(1);
+    expect(tasksToStreakDay({ total: 10, skipped: 0, completed: 9 })).toBe(0);
+  });
+
+  it('builds the Day streak from 80 % days', () => {
+    let data: AppData = createDefaultData();
+    const complete = (d: string, n: number) => {
+      for (const t of getDayTasks(buildStatsContext(data), d).slice(0, n)) data = setCompleted(data, t, true);
+    };
+    complete('2026-10-05', 10); // 10/12 → counts
+    complete('2026-10-06', 12); // 12/12 → counts
+    complete('2026-10-07', 9); // 9/12 = 75 % → grace day
+    complete('2026-10-08', 11); // counts
+    expect(streakFor(buildStatsContext(data), 'overall', '2026-10-09')).toEqual({ current: 3, longest: 3 });
+    complete('2026-10-09', 3); // today, not there yet → pending, streak unchanged
+    expect(streakFor(buildStatsContext(data), 'overall', '2026-10-09').current).toBe(3);
   });
 });

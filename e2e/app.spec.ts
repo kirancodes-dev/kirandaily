@@ -46,6 +46,21 @@ test('completing a task updates stats and survives a reload', async ({ page }) =
   await expect(page.getByText('17%')).toBeVisible();
 });
 
+test('a day with 80% or more of its tasks done counts for the Day streak', async ({ page }) => {
+  await open(page);
+  await expect(page.getByText('0-day streak')).toBeVisible();
+  await expect(page.getByText('10 more tasks to reach 80% and keep the streak')).toBeVisible();
+  for (const name of ['Wake up', 'Gym', 'Bath + breakfast', 'Get ready + travel', 'College', 'Travel + rest', 'College subject', 'Dinner', 'Java']) {
+    await page.getByRole('checkbox', { name: `Mark ${name} done` }).check();
+  }
+  await expect(page.getByText('1 more task to reach 80% and keep the streak')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark German done' }).check();
+  await expect(page.getByText('✓ Today counts for your streak (80%+)')).toBeVisible();
+  await expect(page.getByText('1-day streak')).toBeVisible();
+  await page.goto('/#/schedule?view=month');
+  await expect(page.getByRole('button', { name: /^Open 2026-10-05.*streak day/ })).toBeVisible();
+});
+
 test('task can be moved, duplicated, skipped and deleted for one day', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: 'Options for German' }).click();

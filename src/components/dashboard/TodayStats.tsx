@@ -1,17 +1,24 @@
-import { BookOpen, CheckCircle2, Dumbbell, Moon, XCircle } from 'lucide-react';
+import { BookOpen, CheckCircle2, Dumbbell, Flame, Moon, XCircle } from 'lucide-react';
 import { StatTile } from '../common/Card';
 import { ProgressBar } from '../common/Progress';
 import type { DayStats } from '../../utils/calculations';
 import { formatHours, formatMinutes } from '../../utils/date';
+import { isStreakDay, tasksToStreakDay, type StreakResult } from '../../utils/streaks';
+import { scheduleConfig } from '../../config/schedule';
 
 interface Props {
   stats: DayStats;
   sleepTargetMinutes: number;
   sleepHours?: number;
   onLogSleep: () => void;
+  /** Current Day streak (only shown for today). */
+  streak?: StreakResult;
+  isToday: boolean;
 }
 
-export function TodayStats({ stats, sleepTargetMinutes, sleepHours, onLogSleep }: Props) {
+const THRESHOLD = scheduleConfig.streakDayThreshold;
+
+export function TodayStats({ stats, sleepTargetMinutes, sleepHours, onLogSleep, streak, isToday }: Props) {
   const pct = stats.completionPct ?? 0;
   const studyPct = stats.targetMinutes ? (stats.studyMinutes / stats.targetMinutes) * 100 : 0;
   return (
@@ -27,9 +34,16 @@ export function TodayStats({ stats, sleepTargetMinutes, sleepHours, onLogSleep }
             {stats.skipped > 0 && ` · ${stats.skipped} skipped`}
           </p>
         </div>
-        <div className="mt-3">
+        <div className="relative mt-3">
           <ProgressBar value={pct} label="Today’s completion" showValue={false} tone="green" />
+          {/* Marker at the streak threshold */}
+          <span
+            aria-hidden
+            className="absolute -top-1 h-4 w-0.5 rounded bg-orange-500"
+            style={{ left: `${THRESHOLD}%` }}
+          />
         </div>
+        <StreakLine stats={stats} streak={streak} isToday={isToday} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -75,5 +89,27 @@ export function TodayStats({ stats, sleepTargetMinutes, sleepHours, onLogSleep }
         </button>
       </div>
     </section>
+  );
+}
+
+function StreakLine({ stats, streak, isToday }: Pick<Props, 'stats' | 'streak' | 'isToday'>) {
+  if (stats.completionPct === null) return null;
+  const counted = isStreakDay(stats);
+  const left = tasksToStreakDay(stats);
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+      {streak && (
+        <p className="inline-flex items-center gap-1 font-semibold text-orange-700 dark:text-orange-300">
+          <Flame size={18} aria-hidden />
+          {streak.current}-day streak
+          <span className="font-normal text-slate-600 dark:text-slate-400">· best {streak.longest}</span>
+        </p>
+      )}
+      <p role="status" className={counted ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}>
+        {counted
+          ? `✓ ${isToday ? 'Today counts' : 'This day counted'} for your streak (${THRESHOLD}%+)`
+          : `${left} more task${left === 1 ? '' : 's'} to reach ${THRESHOLD}%${isToday ? ' and keep the streak' : ''}`}
+      </p>
+    </div>
   );
 }

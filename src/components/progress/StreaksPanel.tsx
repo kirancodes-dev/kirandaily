@@ -2,6 +2,7 @@ import { Flame, Trophy } from 'lucide-react';
 import { Card } from '../common/Card';
 import { useStreaks } from '../../hooks/useProgress';
 import { STREAK_LABELS, STREAK_RULES, type StreakKind } from '../../utils/streaks';
+import { scheduleConfig } from '../../config/schedule';
 
 export function StreaksPanel({ today }: { today: string }) {
   const streaks = useStreaks(today);
@@ -22,7 +23,8 @@ export function StreaksPanel({ today }: { today: string }) {
         ))}
       </ul>
       <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
-        One missed day never breaks a streak — only two in a row do. Special days (birthdays, parties, outings) are ignored.
+        Day streak: every day you finish {scheduleConfig.streakDayThreshold}% or more of your tasks adds one day. One missed day never
+        breaks a streak — only two in a row do. Special days (birthdays, parties, outings) are ignored.
       </p>
     </Card>
   );

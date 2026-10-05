@@ -47,6 +47,9 @@ export const scheduleConfig = {
   /** The plan starts here. Template tasks repeat after this date (into future months too). */
   planStartDate: '2026-10-05',
 
+  /** A day counts towards your Day streak when at least this % of its tasks are done (skipped tasks don't count). */
+  streakDayThreshold: 80,
+
   /** Focused study hours per day. */
   weekdayStudyTarget: 4,
   saturdayStudyTarget: 8,

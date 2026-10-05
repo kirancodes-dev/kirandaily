@@ -1,5 +1,6 @@
 import { eachDate } from './date';
-import { dayStats, getDayTasks, studyByCategoryOnDate, type StatsContext } from './calculations';
+import { scheduleConfig } from '../config/schedule';
+import { dayStats, getDayTasks, studyByCategoryOnDate, type DayStats, type StatsContext } from './calculations';
 
 /**
  * hit     – the habit was done that day
@@ -44,7 +45,7 @@ export const STREAK_LABELS: Record<StreakKind, string> = {
   java: 'Java',
   dsa: 'DSA',
   german: 'German',
-  overall: 'Productivity',
+  overall: 'Day streak',
 };
 
 export const STREAK_RULES: Record<StreakKind, string> = {
@@ -53,8 +54,32 @@ export const STREAK_RULES: Record<StreakKind, string> = {
   java: 'Any Java study on days it is planned',
   dsa: 'Any DSA study or problem on days it is planned',
   german: 'Any German study on days it is planned',
-  overall: 'At least 50 % of the day’s tasks done',
+  overall: `${scheduleConfig.streakDayThreshold}%+ of the day’s tasks done`,
 };
+
+/** Tasks that count for the day (skipped tasks are left out). */
+function countable(stats: Pick<DayStats, 'total' | 'skipped'>): number {
+  return stats.total - stats.skipped;
+}
+
+/** A day with at least `threshold` % of its tasks completed counts as one Day-streak day. */
+export function isStreakDay(
+  stats: Pick<DayStats, 'total' | 'skipped' | 'completed'>,
+  threshold = scheduleConfig.streakDayThreshold,
+): boolean {
+  const n = countable(stats);
+  return n > 0 && stats.completed / n >= threshold / 100;
+}
+
+/** How many more tasks must be completed for the day to count (0 when it already does). */
+export function tasksToStreakDay(
+  stats: Pick<DayStats, 'total' | 'skipped' | 'completed'>,
+  threshold = scheduleConfig.streakDayThreshold,
+): number {
+  const n = countable(stats);
+  if (n <= 0) return 0;
+  return Math.max(0, Math.ceil((n * threshold) / 100 - 1e-9) - stats.completed);
+}
 
 function markFor(ctx: StatsContext, kind: StreakKind, date: string, isToday: boolean): DayMark {
   const stats = dayStats(ctx, date);
@@ -72,7 +97,7 @@ function markFor(ctx: StatsContext, kind: StreakKind, date: string, isToday: boo
       break;
     case 'overall':
       planned = stats.completionPct !== null;
-      done = (stats.completionPct ?? 0) >= 50;
+      done = isStreakDay(stats);
       break;
     default: {
       const tasks = getDayTasks(ctx, date).filter((t) => t.category === kind && !t.skipped);
@@ -96,7 +121,7 @@ export function streakFor(ctx: StatsContext, kind: StreakKind, today: string): S
 }
 
 export function allStreaks(ctx: StatsContext, today: string): Record<StreakKind, StreakResult> {
-  const kinds: StreakKind[] = ['gym', 'study', 'java', 'dsa', 'german', 'overall'];
+  const kinds: StreakKind[] = ['overall', 'gym', 'study', 'java', 'dsa', 'german'];
   return Object.fromEntries(kinds.map((k) => [k, streakFor(ctx, k, today)])) as Record<StreakKind, StreakResult>;
 }
 

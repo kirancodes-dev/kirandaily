@@ -119,6 +119,7 @@ Edit the defaults in **`src/config/schedule.ts`**. It is the single place where 
 | Saturday plan | `saturdayBlocks` |
 | Sunday plan | `sundayBlocks` |
 | Pomodoro presets (25/5, 50/10, 90/15) | `pomodoroPresets` |
+| Day-streak threshold (80% of tasks) | `streakDayThreshold` |
 
 The config seeds the app on first open. Your browser saves your own changes, so after editing the file:
 
@@ -225,5 +226,6 @@ src/
 
 - **Study hours** are completed study tasks plus timer or manually logged sessions. If you finish a session and tick the planned task with it, only the session's real time counts, so nothing is counted twice.
 - **Missed tasks are never marked as failures.** Past tasks that weren't done just show as "not done".
-- **Streaks are forgiving.** One missed day never breaks a streak; two in a row do. Days you mark as a birthday, party or outing are ignored.
+- **Day streak:** every day you finish **80% or more** of that day's tasks adds one day to your streak. Skipped tasks don't count against you. Today shows how many more tasks you need, and the monthly calendar marks counted days with 🔥. Change the 80% with `streakDayThreshold` in `src/config/schedule.ts`.
+- **Streaks are forgiving.** One missed day never breaks a streak; two in a row do. Days you mark as a birthday, party or outing are ignored. There are also separate gym, study, Java, DSA and German streaks on the Progress page.
 - **The timer** works from timestamps, so it stays correct when the tab is in the background or the phone is locked. In Pomodoro mode it beeps and notifies you (if allowed) when a phase changes, and breaks don't count as study time.

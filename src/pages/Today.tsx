@@ -4,7 +4,7 @@ import { BarChart3, CalendarHeart, ClipboardCheck, Plus } from 'lucide-react';
 import { useAppData } from '../hooks/useAppData';
 import { useToday } from '../hooks/useToday';
 import { useTasks } from '../hooks/useTasks';
-import { useDayStats } from '../hooks/useProgress';
+import { useDayStats, useStreaks } from '../hooks/useProgress';
 import { useDayLog } from '../hooks/useDayLog';
 import { DateNavigator } from '../components/dashboard/DateNavigator';
 import { TodayStats } from '../components/dashboard/TodayStats';
@@ -27,6 +27,7 @@ export default function Today() {
   const { data } = useAppData();
   const { tasks } = useTasks(date);
   const stats = useDayStats(date);
+  const streaks = useStreaks(today);
   const { log, save } = useDayLog(date);
   const dialogs = useTaskDialogs();
   const [dialog, setDialog] = useState<'none' | 'sleep' | 'special'>('none');
@@ -85,7 +86,14 @@ export default function Today() {
         </Link>
       )}
 
-      <TodayStats stats={stats} sleepTargetMinutes={sleepTarget} sleepHours={log?.sleepHours} onLogSleep={() => setDialog('sleep')} />
+      <TodayStats
+        stats={stats}
+        sleepTargetMinutes={sleepTarget}
+        sleepHours={log?.sleepHours}
+        onLogSleep={() => setDialog('sleep')}
+        streak={date === today ? streaks.overall : undefined}
+        isToday={date === today}
+      />
 
       <section aria-labelledby="schedule-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
