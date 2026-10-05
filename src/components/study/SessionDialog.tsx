@@ -5,8 +5,10 @@ import { Button } from '../common/Button';
 import { SelectField, TextField } from '../common/Fields';
 import { useAppData } from '../../hooks/useAppData';
 import { useCategories } from '../../hooks/useCategories';
+import { useNow } from '../../hooks/useNow';
 import { getDayTasks } from '../../utils/calculations';
 import { formatTime12, isValidISODate } from '../../utils/date';
+import { canMarkDone } from '../../utils/timeGate';
 
 interface Props {
   title: string;
@@ -32,9 +34,15 @@ export function SessionDialog({ title, initialMinutes, date: initialDate, manual
   const [taskId, setTaskId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const now = useNow();
+  const gateOn = data.prefs.timeGate;
+  // Only tasks that have started can be completed (time-lock).
   const openTasks = useMemo(
-    () => (isValidISODate(date) ? getDayTasks(stats, date).filter((t) => t.category === category && !t.completed && !t.skipped) : []),
-    [stats, date, category],
+    () =>
+      isValidISODate(date)
+        ? getDayTasks(stats, date).filter((t) => t.category === category && !t.completed && !t.skipped && canMarkDone(t, now, gateOn))
+        : [],
+    [stats, date, category, now, gateOn],
   );
 
   const save = () => {
