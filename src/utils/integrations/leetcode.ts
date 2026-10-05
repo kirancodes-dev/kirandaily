@@ -227,3 +227,22 @@ export async function fetchLeetCodeStats(
   }
   throw new IntegrationError('http', 'The free LeetCode stats services aren’t answering right now. Try again in a few minutes.');
 }
+
+/**
+ * Whole-number percentages of `values` that add up to exactly 100 (largest remainder),
+ * e.g. 888 / 1888 / 680 → 26 / 54 / 20 instead of 26 / 55 / 20 = 101. All zeros → all 0.
+ */
+export function percentShares(values: number[]): number[] {
+  const total = values.reduce((s, v) => s + Math.max(0, v), 0);
+  if (total <= 0) return values.map(() => 0);
+  const exact = values.map((v) => (Math.max(0, v) / total) * 100);
+  const shares = exact.map(Math.floor);
+  let left = 100 - shares.reduce((s, v) => s + v, 0);
+  const order = exact.map((x, i) => ({ i, rest: x - Math.floor(x) })).sort((a, b) => b.rest - a.rest || a.i - b.i);
+  for (const { i } of order) {
+    if (left <= 0) break;
+    shares[i]++;
+    left--;
+  }
+  return shares;
+}

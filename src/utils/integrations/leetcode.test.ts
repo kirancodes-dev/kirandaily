@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { calendarFromUnix, fetchLeetCodeStats, leetCodeStatsSchema, parseSubmissionCalendar } from './leetcode';
+import { calendarFromUnix, fetchLeetCodeStats, leetCodeStatsSchema, parseSubmissionCalendar, percentShares } from './leetcode';
 import { fakeFetch, type Reply } from './testing';
 
 const ALFA = 'https://alfa-leetcode-api.onrender.com/kiran_lc';
@@ -141,5 +141,21 @@ describe('submission calendar', () => {
     expect(parseSubmissionCalendar({ [OCT5_UTC]: 'two' })).toBeNull();
     expect(parseSubmissionCalendar({ '<script>': 1 })).toBeNull();
     expect(parseSubmissionCalendar(null)).toBeNull();
+  });
+});
+
+describe('difficulty shares', () => {
+  it('add up to exactly 100%', () => {
+    expect(percentShares([888, 1888, 680])).toEqual([26, 54, 20]);
+    expect(percentShares([80, 50, 12])).toEqual([56, 35, 9]);
+    expect(percentShares([1, 1, 1])).toEqual([34, 33, 33]);
+    expect(percentShares([5, 0, 0])).toEqual([100, 0, 0]);
+    for (const v of [[888, 1888, 680], [1, 2, 3], [7, 7, 7], [999, 1, 1], [3, 3, 1]]) {
+      expect(percentShares(v).reduce((a, b) => a + b, 0)).toBe(100);
+    }
+  });
+
+  it('is all zeros when nothing is solved yet', () => {
+    expect(percentShares([0, 0, 0])).toEqual([0, 0, 0]);
   });
 });

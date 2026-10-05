@@ -21,6 +21,14 @@ describe('contribution graph', () => {
     expect(g.weeks[0].map((c) => c!.noData)).toEqual([true, true, true, false, false, false, false]);
   });
 
+  it('marks days after an older copy of the data as unknown too', () => {
+    const g = buildGraph([{ date: '2026-10-03', count: 2 }], '2026-10-05', 2, undefined, '2026-10-03');
+    // Mon Sep 28 – Sun Oct 4, then Mon Oct 5 (today).
+    expect(g.weeks[0].map((c) => c!.noData)).toEqual([false, false, false, false, false, false, true]);
+    expect(g.weeks[0][5]).toMatchObject({ date: '2026-10-03', count: 2, noData: false });
+    expect(g.weeks[1][0]).toMatchObject({ date: '2026-10-05', noData: true });
+  });
+
   it('labels months where they start, without crowding', () => {
     const g = buildGraph([], '2026-10-05', 53);
     const labels = g.months.map((m) => m.label);

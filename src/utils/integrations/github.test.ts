@@ -1,5 +1,18 @@
-import { afterEach, beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
-import { fetchGitHubCalendar, fetchGitHubRepos, fetchGitHubStats, gitHubStatsSchema, pushEventsToDays } from './github';
+import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
+import { CACHE_MAX_AGE_MS } from './cache';
+import {
+  eventsCoverageStart,
+  EVENTS_MAX_PAGES,
+  fetchGitHubCalendar,
+  fetchGitHubRepos,
+  fetchGitHubStats,
+  gitHubMaxAge,
+  gitHubStatsSchema,
+  mergeGitHubStats,
+  PARTIAL_RETRY_MS,
+  pushEventsToDays,
+  type GitHubStats,
+} from './github';
 import { IntegrationError } from './http';
 import { fakeFetch, type Reply } from './testing';
 
@@ -43,7 +56,8 @@ function stub(routes: Record<string, Reply>) {
   return f.calls;
 }
 
-// Push events are bucketed by local day; pin the zone so the test means the same everywhere.
+// Push events are bucketed by local day; pin the zone and "today" (Mon Oct 5, 2026, 7:45 PM in India)
+// so the test means the same everywhere and on any date.
 const zone = process.env.TZ;
 beforeAll(() => {
   process.env.TZ = 'Asia/Kolkata';
@@ -51,7 +65,14 @@ beforeAll(() => {
 afterAll(() => {
   process.env.TZ = zone;
 });
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-05T19:45:00+05:30'));
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe('GitHub stats', () => {
   it('loads and maps profile, recent repos and the contribution graph', async () => {
@@ -149,13 +170,58 @@ describe('GitHub stats', () => {
         { date: '2026-10-03', count: 4 },
         { date: '2026-10-05', count: 5 },
       ],
+      // Fewer than 100 events: that's everything GitHub keeps (90 days).
+      from: '2026-07-08',
     });
     expect(calls.map((c) => c.url)).toEqual([GRAPH, EVENTS]);
   });
 
+  it('reads more pages of events for a busy account and says how far back they really go', async () => {
+    // 100 events per page, 3 per day going back from Oct 5: page 1 reaches Oct 5 - 33 days, and so on.
+    const page = (n: number) =>
+      Array.from({ length: 100 }, (_, i) => {
+        const k = (n - 1) * 100 + i;
+        const day = Math.floor(k / 3);
+        const at = new Date(Date.UTC(2026, 9, 5, 6) - day * 86_400_000).toISOString();
+        return { type: k % 3 === 2 ? 'WatchEvent' : 'PushEvent', created_at: at, payload: { size: 1 } };
+      });
+    const calls = stub({
+      [GRAPH]: { status: 502 },
+      [EVENTS]: { body: page(1) },
+      [`${EVENTS}&page=2`]: { body: page(2) },
+      [`${EVENTS}&page=3`]: { body: page(3) },
+    });
+    const cal = await fetchGitHubCalendar('kiran-dev');
+    expect(calls.map((c) => c.url)).toEqual([GRAPH, EVENTS, `${EVENTS}&page=2`, `${EVENTS}&page=3`]);
+    expect(EVENTS_MAX_PAGES).toBe(3);
+    // 300 events = 100 days of 3 (Oct 5 back to Jun 28) – capped at 90 days anyway.
+    expect(cal.from).toBe('2026-07-08');
+
+    // Page 2 fails: page 1 alone goes back to Sep 2 – cut off there, so the graph starts on Sep 3.
+    stub({ [GRAPH]: { status: 502 }, [EVENTS]: { body: page(1) }, [`${EVENTS}&page=2`]: { status: 500 } });
+    const partial = await fetchGitHubCalendar('kiran-dev');
+    expect(partial.from).toBe('2026-09-03');
+    expect(partial.days[0].date).toBe('2026-09-03');
+    expect(partial.days).toHaveLength(33);
+    expect(partial.days.every((d) => d.count === 2)).toBe(true);
+    expect(partial.total).toBe(partial.days.length * 2);
+  });
+
+  it('works out the first day the events fully cover', () => {
+    const ev = (at: string) => ({ type: 'PushEvent', created_at: at, payload: { size: 1 } });
+    const today = '2026-10-05';
+    expect(eventsCoverageStart([], false, today)).toBe('2026-07-08');
+    expect(eventsCoverageStart([ev('2026-10-01T05:00:00Z')], true, today)).toBe('2026-07-08');
+    // Cut off: the oldest event's day may be missing some, so it starts the day after.
+    expect(eventsCoverageStart([ev('2026-10-04T05:00:00Z'), ev('2026-09-20T05:00:00Z')], false, today)).toBe('2026-09-21');
+    // Never later than today, never earlier than 90 days.
+    expect(eventsCoverageStart([ev('2026-10-05T05:00:00Z')], false, today)).toBe(today);
+    expect(eventsCoverageStart([ev('2026-05-01T05:00:00Z')], false, today)).toBe('2026-07-08');
+  });
+
   it('falls back when the graph API answers with something unexpected', async () => {
     stub({ [GRAPH]: { body: { error: 'oops' } }, [EVENTS]: { body: [] } });
-    expect(await fetchGitHubCalendar('kiran-dev')).toEqual({ source: 'events', total: 0, days: [] });
+    expect(await fetchGitHubCalendar('kiran-dev')).toEqual({ source: 'events', total: 0, days: [], from: '2026-07-08' });
   });
 
   it('still shows the profile when the repo list or the graph fail', async () => {
@@ -178,5 +244,52 @@ describe('GitHub stats', () => {
         { type: 'PushEvent', created_at: '2026-10-05T02:00:00Z', payload: null },
       ]),
     ).toEqual([{ date: '2026-10-05', count: 1 }]);
+  });
+});
+
+describe('keeping parts that failed to refresh', () => {
+  const HOUR = 60 * 60 * 1000;
+  const T = new Date('2026-10-05T19:45:00+05:30').getTime();
+  const base: GitHubStats = {
+    username: 'kiran-dev',
+    profile: { login: 'kiran-dev', name: 'Kiran', avatarUrl: null, htmlUrl: 'https://github.com/kiran-dev', publicRepos: 1, followers: 1, following: 0 },
+    repos: [{ name: 'a', htmlUrl: 'https://github.com/kiran-dev/a', description: null, language: null, stars: 0, pushedAt: null }],
+    calendar: { source: 'contributions', total: 3, days: [{ date: '2026-10-04', count: 3 }] },
+  };
+  const next: GitHubStats = { ...base, profile: { ...base.profile, followers: 99 }, repos: null, calendar: null };
+
+  it('keeps the cached graph and repos (and how old they are) when they fail', () => {
+    const merged = mergeGitHubStats(next, { fetchedAt: T - 7 * HOUR, data: base });
+    expect(merged.profile.followers).toBe(99);
+    expect(merged.calendar).toEqual(base.calendar);
+    expect(merged.repos).toEqual(base.repos);
+    expect(merged.staleParts).toEqual({ calendar: T - 7 * HOUR, repos: T - 7 * HOUR });
+    expect(gitHubStatsSchema.safeParse(merged).success).toBe(true);
+
+    // Failing again later: the copy is still from 7 h before, not from the last attempt.
+    const again = mergeGitHubStats(next, { fetchedAt: T - HOUR, data: merged });
+    expect(again.staleParts).toEqual({ calendar: T - 7 * HOUR, repos: T - 7 * HOUR });
+  });
+
+  it('uses every part that did load, and drops the old-copy marks once all load', () => {
+    const graphOnly = mergeGitHubStats({ ...next, repos: [] }, { fetchedAt: T - 7 * HOUR, data: base });
+    expect(graphOnly.repos).toEqual([]);
+    expect(graphOnly.staleParts).toEqual({ calendar: T - 7 * HOUR });
+    const all = mergeGitHubStats(base, { fetchedAt: T - HOUR, data: graphOnly });
+    expect(all.staleParts).toBeUndefined();
+    expect(all).toEqual(base);
+  });
+
+  it('never mixes in another username’s data, and has nothing to keep on a first load', () => {
+    expect(mergeGitHubStats(next, { fetchedAt: T, data: { ...base, username: 'someone-else' } })).toEqual(next);
+    expect(mergeGitHubStats(next, null)).toEqual(next);
+  });
+
+  it('refreshes after 6 hours, or after 30 minutes when a part is missing or old', () => {
+    expect(gitHubMaxAge(base)).toBe(CACHE_MAX_AGE_MS);
+    expect(gitHubMaxAge(next)).toBe(PARTIAL_RETRY_MS);
+    expect(gitHubMaxAge(mergeGitHubStats(next, { fetchedAt: T, data: base }))).toBe(PARTIAL_RETRY_MS);
+    expect(gitHubMaxAge({ ...base, calendar: { source: 'events', total: 0, days: [], from: '2026-07-08' } })).toBe(PARTIAL_RETRY_MS);
+    expect(PARTIAL_RETRY_MS).toBe(30 * 60 * 1000);
   });
 });

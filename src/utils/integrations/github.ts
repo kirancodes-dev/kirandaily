@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { toISODate } from '../date';
+import { addDays, isValidISODate, toISODate, todayISO } from '../date';
+import { CACHE_MAX_AGE_MS, type CacheEntry } from './cache';
 import { dayCountSchema, type DayCount } from './contrib';
 import { fetchValidated, IntegrationError, type RequestOptions } from './http';
 import { isValidUsername, profileUrl } from './usernames';
@@ -42,6 +43,11 @@ export interface ContributionCalendar {
   source: 'contributions' | 'events';
   total: number;
   days: DayCount[];
+  /**
+   * Events only: first local date the events fully cover. GitHub keeps 90 days of
+   * events but at most 300 of them, so a busy account's history starts later.
+   */
+  from?: string;
 }
 
 export interface GitHubStats {
@@ -51,7 +57,18 @@ export interface GitHubStats {
   repos: GitHubRepo[] | null;
   /** null when neither the graph API nor the events fallback answered. */
   calendar: ContributionCalendar | null;
+  /**
+   * Parts that failed in the last refresh and show an older copy instead,
+   * with when that copy was loaded (epoch ms). See mergeGitHubStats.
+   */
+  staleParts?: { repos?: number; calendar?: number };
 }
+
+/** A refresh where a part failed is retried this soon (instead of after 6 hours). */
+export const PARTIAL_RETRY_MS = 30 * 60 * 1000;
+/** Public events per page (the most GitHub allows) and pages read (GitHub keeps at most 300 events). */
+export const EVENTS_PER_PAGE = 100;
+export const EVENTS_MAX_PAGES = 3;
 
 /* ───────────── API responses (never trusted) ───────────── */
 
@@ -123,8 +140,14 @@ export const gitHubStatsSchema: z.ZodType<GitHubStats, z.ZodTypeDef, unknown> = 
     )
     .nullable(),
   calendar: z
-    .object({ source: z.enum(['contributions', 'events']), total: count, days: z.array(dayCountSchema) })
+    .object({
+      source: z.enum(['contributions', 'events']),
+      total: count,
+      days: z.array(dayCountSchema),
+      from: z.string().refine(isValidISODate).optional(),
+    })
     .nullable(),
+  staleParts: z.object({ repos: z.number().optional(), calendar: z.number().optional() }).optional(),
 });
 
 function checkUsername(username: string): string {
@@ -177,8 +200,10 @@ export async function fetchGitHubRepos(username: string, opts: RequestOptions = 
     .slice(0, 5);
 }
 
+type PublicEvent = z.infer<typeof eventsResponse>[number];
+
 /** Commits per local day from public push events (GitHub keeps ~90 days of them). */
-export function pushEventsToDays(events: z.infer<typeof eventsResponse>): DayCount[] {
+export function pushEventsToDays(events: PublicEvent[]): DayCount[] {
   const byDate = new Map<string, number>();
   for (const e of events) {
     if (e.type !== 'PushEvent') continue;
@@ -189,6 +214,43 @@ export function pushEventsToDays(events: z.infer<typeof eventsResponse>): DayCou
     byDate.set(date, (byDate.get(date) ?? 0) + commits);
   }
   return [...byDate.entries()].map(([date, n]) => ({ date, count: n })).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * First local date the events fully cover. With every event GitHub keeps (`complete`)
+ * that's the last 90 days; when the list was cut off, the day of the oldest event may
+ * be missing some, so coverage starts the day after it.
+ */
+export function eventsCoverageStart(events: PublicEvent[], complete: boolean, today: string): string {
+  const ninetyDays = addDays(today, -89);
+  if (complete || events.length === 0) return ninetyDays;
+  const oldest = events.reduce((min, e) => (e.created_at < min ? e.created_at : min), events[0].created_at);
+  const from = addDays(toISODate(new Date(oldest)), 1);
+  return from > today ? today : from < ninetyDays ? ninetyDays : from;
+}
+
+/** Commits per day from public push events, as far back as GitHub still has them. */
+async function fetchPushActivity(u: string, opts: RequestOptions): Promise<ContributionCalendar> {
+  const events: PublicEvent[] = [];
+  let complete = false;
+  for (let page = 1; page <= EVENTS_MAX_PAGES; page++) {
+    const url = `${API}/users/${u}/events/public?per_page=${EVENTS_PER_PAGE}${page > 1 ? `&page=${page}` : ''}`;
+    let batch: PublicEvent[];
+    try {
+      batch = await fetchValidated(url, eventsResponse, { ...opts, service: 'GitHub', headers: HEADERS });
+    } catch (err) {
+      if (page === 1) throw err;
+      break; // keep what the earlier pages had; the coverage date says how far back it goes
+    }
+    events.push(...batch);
+    if (batch.length < EVENTS_PER_PAGE) {
+      complete = true;
+      break;
+    }
+  }
+  const from = eventsCoverageStart(events, complete, todayISO());
+  const days = pushEventsToDays(events).filter((d) => d.date >= from);
+  return { source: 'events', total: days.reduce((s, d) => s + d.count, 0), days, from };
 }
 
 /** Last-year contribution graph, or recent push activity when the graph API is down. */
@@ -205,13 +267,7 @@ export async function fetchGitHubCalendar(username: string, opts: RequestOptions
     return { source: 'contributions', total: res.total.lastYear, days };
   } catch (err) {
     if (err instanceof IntegrationError && err.kind === 'aborted') throw err;
-    const events = await fetchValidated(`${API}/users/${u}/events/public?per_page=100`, eventsResponse, {
-      ...opts,
-      service: 'GitHub',
-      headers: HEADERS,
-    });
-    const days = pushEventsToDays(events);
-    return { source: 'events', total: days.reduce((s, d) => s + d.count, 0), days };
+    return fetchPushActivity(u, opts);
   }
 }
 
@@ -233,4 +289,35 @@ export async function fetchGitHubStats(username: string, opts: RequestOptions = 
     repos: repos.status === 'fulfilled' ? repos.value : null,
     calendar: calendar.status === 'fulfilled' ? calendar.value : null,
   };
+}
+
+/**
+ * A refresh where the repo list or the graph failed keeps the previously cached copy
+ * of that part (a failed refresh never wipes data), remembering how old it is so the
+ * card can say so and the next refresh comes soon.
+ */
+export function mergeGitHubStats(next: GitHubStats, previous: CacheEntry<GitHubStats> | null): GitHubStats {
+  const fresh: GitHubStats = { username: next.username, profile: next.profile, repos: next.repos, calendar: next.calendar };
+  const prev = previous && previous.data.username.toLowerCase() === next.username.toLowerCase() ? previous : null;
+  const staleParts: NonNullable<GitHubStats['staleParts']> = {};
+  let repos = fresh.repos;
+  let calendar = fresh.calendar;
+  if (repos === null && prev?.data.repos) {
+    repos = prev.data.repos;
+    staleParts.repos = prev.data.staleParts?.repos ?? prev.fetchedAt;
+  }
+  if (calendar === null && prev?.data.calendar) {
+    calendar = prev.data.calendar;
+    staleParts.calendar = prev.data.staleParts?.calendar ?? prev.fetchedAt;
+  }
+  return { ...fresh, repos, calendar, ...(Object.keys(staleParts).length > 0 ? { staleParts } : {}) };
+}
+
+/**
+ * How long cached GitHub stats count as fresh: 6 hours, or 30 minutes when a part is
+ * missing or old (failed refresh, or the graph came from the 90-day events fallback).
+ */
+export function gitHubMaxAge(stats: GitHubStats): number {
+  const partial = stats.repos === null || stats.calendar === null || stats.calendar.source === 'events' || !!stats.staleParts;
+  return partial ? PARTIAL_RETRY_MS : CACHE_MAX_AGE_MS;
 }

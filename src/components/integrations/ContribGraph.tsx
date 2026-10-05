@@ -1,12 +1,14 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Flame, Trophy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Flame, Trophy } from 'lucide-react';
+import { IconButton } from '../common/Button';
 import { activitySummary, buildGraph, countsByDate, plural, type DayCount, type Level } from '../../utils/integrations/contrib';
 import { addDays, formatShortDate, WEEKDAY_SHORT, dayOfWeek } from '../../utils/date';
 
 /**
  * GitHub-style activity graph for any { date, count } series (GitHub contributions,
  * LeetCode submissions). On phones it scrolls sideways and starts at the latest week.
- * Tap or hover a square for its day; with a keyboard, focus it and use the arrow keys.
+ * Tap or hover a square for its day (a tap snaps to the nearest square), step with the
+ * previous/next-day buttons, or focus the graph and use the arrow keys.
  */
 
 interface ContribGraphProps {
@@ -17,6 +19,8 @@ interface ContribGraphProps {
   weeks?: number;
   /** First day with data; earlier squares are drawn as outlines (unknown, not zero). */
   from?: string;
+  /** Last day with data when it's an older copy; later squares are outlines too. */
+  until?: string;
   /** e.g. "GitHub contributions" – names the graph for screen readers. */
   label: string;
   unit: [singular: string, plural: string];
@@ -49,9 +53,11 @@ function dayLabel(date: string, today: string): string {
   return `${WEEKDAY_SHORT[dayOfWeek(date)]}, ${formatShortDate(date)}`;
 }
 
-export function ContribGraph({ days, endDate, weeks = 53, from, label, unit }: ContribGraphProps) {
-  const graph = useMemo(() => buildGraph(days, endDate, weeks, from), [days, endDate, weeks, from]);
-  const summary = useMemo(() => activitySummary(days, endDate), [days, endDate]);
+export function ContribGraph({ days, endDate, weeks = 53, from, label, unit, until }: ContribGraphProps) {
+  const lastKnown = until && until < endDate ? until : undefined;
+  const graph = useMemo(() => buildGraph(days, endDate, weeks, from, lastKnown), [days, endDate, weeks, from, lastKnown]);
+  // Streaks run up to the last day the data knows about (an unknown day isn't a zero).
+  const summary = useMemo(() => activitySummary(days, lastKnown ?? endDate), [days, endDate, lastKnown]);
   const counts = useMemo(() => countsByDate(days), [days]);
   const [selected, setSelected] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -75,7 +81,7 @@ export function ContribGraph({ days, endDate, weeks = 53, from, label, unit }: C
   const height = TOP + 7 * PITCH - GAP;
   const shown = selected ?? endDate;
   const shownCount = counts.get(shown) ?? 0;
-  const shownNoData = shown < firstDate;
+  const shownNoData = shown < firstDate || (!!lastKnown && shown > lastKnown);
 
   const select = (date: string) => {
     const clamped = date > endDate ? endDate : date < firstDate ? firstDate : date;
@@ -130,8 +136,13 @@ export function ContribGraph({ days, endDate, weeks = 53, from, label, unit }: C
             aria-hidden
             className="block"
             onClick={(e) => {
-              const date = (e.target as Element).getAttribute('data-date');
-              if (date) setSelected(date === selected ? null : date);
+              // The square under the finger, counting the gap around it (squares are small on phones).
+              const box = e.currentTarget.getBoundingClientRect();
+              const scale = box.width > 0 ? width / box.width : 1;
+              const col = Math.floor(((e.clientX - box.left) * scale + GAP / 2) / PITCH);
+              const row = Math.floor(((e.clientY - box.top) * scale - TOP + GAP / 2) / PITCH);
+              const cell = row >= 0 && row < 7 ? graph.weeks[col]?.[row] : null;
+              if (cell) setSelected(cell.date === selected ? null : cell.date);
             }}
           >
             {graph.months.map((m) => (
@@ -170,34 +181,44 @@ export function ContribGraph({ days, endDate, weeks = 53, from, label, unit }: C
         </div>
       </div>
 
-      <figcaption className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm">
-        <p id={captionId} aria-live="polite" className="min-h-[1.25rem] text-slate-700 dark:text-slate-300">
+      <figcaption className="mt-1 flex items-center justify-between gap-2 text-sm">
+        <p id={captionId} aria-live="polite" className="min-w-0 text-slate-700 dark:text-slate-300">
           <span className="font-medium">{dayLabel(shown, endDate)}</span>
           {' · '}
           {shownNoData ? 'no data' : plural(shownCount, unit)}
         </p>
-        <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400" aria-hidden>
+        <div className="-mr-2 flex shrink-0">
+          <IconButton label="Previous day" onClick={() => select(addDays(shown, -1))} disabled={shown <= firstDate}>
+            <ChevronLeft size={18} aria-hidden />
+          </IconButton>
+          <IconButton label="Next day" onClick={() => select(addDays(shown, 1))} disabled={shown >= endDate}>
+            <ChevronRight size={18} aria-hidden />
+          </IconButton>
+        </div>
+      </figcaption>
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
+          <li className="flex items-center gap-1">
+            <Flame size={16} className="text-orange-500" aria-hidden />
+            Current streak <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{plural(summary.currentStreak, ['day', 'days'])}</span>
+          </li>
+          <li className="flex items-center gap-1">
+            <Trophy size={16} className="text-amber-500" aria-hidden />
+            Longest <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{plural(summary.longestStreak, ['day', 'days'])}</span>
+          </li>
+          <li>
+            <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{summary.activeDays.toLocaleString('en-US')}</span> active day
+            {summary.activeDays === 1 ? '' : 's'}
+          </li>
+        </ul>
+        <div className="ml-auto flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400" aria-hidden>
           <span className="mr-1">Less</span>
           {([0, 1, 2, 3, 4] as Level[]).map((l) => (
             <span key={l} className={`h-3 w-3 rounded-[3px] ${LEVEL_BG[l]}`} />
           ))}
           <span className="ml-1">More</span>
         </div>
-      </figcaption>
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
-        <li className="flex items-center gap-1">
-          <Flame size={16} className="text-orange-500" aria-hidden />
-          Current streak <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{plural(summary.currentStreak, ['day', 'days'])}</span>
-        </li>
-        <li className="flex items-center gap-1">
-          <Trophy size={16} className="text-amber-500" aria-hidden />
-          Longest <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{plural(summary.longestStreak, ['day', 'days'])}</span>
-        </li>
-        <li>
-          <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{summary.activeDays.toLocaleString('en-US')}</span> active day
-          {summary.activeDays === 1 ? '' : 's'}
-        </li>
-      </ul>
+      </div>
     </figure>
   );
 }

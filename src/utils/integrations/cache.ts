@@ -48,18 +48,13 @@ export function readCache<T>(storage: CacheStorage | null, key: string, schema: 
   }
 }
 
-/** Saves the entry and drops cached stats of other usernames for the same service. */
+/**
+ * Saves the entry. Other usernames' entries are left alone here: a slow request for an
+ * old username must never remove the new one's cache (see pruneCache).
+ */
 export function writeCache<T>(storage: CacheStorage | null, key: string, entry: CacheEntry<T>): boolean {
   if (!storage) return false;
   try {
-    const service = key.slice(CACHE_PREFIX.length).split(':')[0];
-    const prefix = `${CACHE_PREFIX}${service}:`;
-    const stale: string[] = [];
-    for (let i = 0; i < storage.length; i++) {
-      const k = storage.key(i);
-      if (k && k !== key && k.startsWith(prefix)) stale.push(k);
-    }
-    stale.forEach((k) => storage.removeItem(k));
     storage.setItem(key, JSON.stringify(entry));
     return true;
   } catch {
@@ -67,9 +62,50 @@ export function writeCache<T>(storage: CacheStorage | null, key: string, entry: 
   }
 }
 
+/** Removed cache entries as [key, raw value], so an Undo can put them back. */
+export type RemovedEntries = [key: string, value: string][];
+
+/**
+ * Drops the service's cached stats for every username except `keep` (all of them
+ * when `keep` is null, e.g. after Disconnect). Other services and app data are untouched.
+ */
+export function pruneCache(storage: CacheStorage | null, service: Service, keep: string | null): RemovedEntries {
+  if (!storage) return [];
+  try {
+    const prefix = `${CACHE_PREFIX}${service}:`;
+    const keepKey = keep ? cacheKey(service, keep) : null;
+    const removed: RemovedEntries = [];
+    for (let i = 0; i < storage.length; i++) {
+      const k = storage.key(i);
+      if (k && k !== keepKey && k.startsWith(prefix)) removed.push([k, storage.getItem(k) ?? '']);
+    }
+    removed.forEach(([k]) => storage.removeItem(k));
+    return removed;
+  } catch {
+    return [];
+  }
+}
+
+/** Puts back entries removed by pruneCache (Undo of a disconnect). */
+export function restoreCache(storage: CacheStorage | null, entries: RemovedEntries): void {
+  if (!storage) return;
+  for (const [k, v] of entries) {
+    try {
+      if (k.startsWith(CACHE_PREFIX) && v) storage.setItem(k, v);
+    } catch {
+      // storage full – the stats load again from the network instead
+    }
+  }
+}
+
 /** Old enough to refresh (or from the future, e.g. after the clock was changed). */
 export function isStale(fetchedAt: number, now: number, maxAge = CACHE_MAX_AGE_MS): boolean {
   return now - fetchedAt >= maxAge || fetchedAt - now > 5 * 60 * 1000;
+}
+
+/** Milliseconds until `isStale` turns true, or null when it already is. */
+export function msUntilStale(fetchedAt: number, now: number, maxAge = CACHE_MAX_AGE_MS): number | null {
+  return isStale(fetchedAt, now, maxAge) ? null : fetchedAt + maxAge - now;
 }
 
 /** "just now", "5 min ago", "3 h ago", "2 days ago", then the date. */
@@ -104,4 +140,9 @@ export function shareRequest<T>(key: string, run: () => Promise<T>): Promise<T> 
   const p = run().finally(() => inflight.delete(key));
   inflight.set(key, p);
   return p;
+}
+
+/** The request currently running for `key`, if any (to show its result too). */
+export function runningRequest<T>(key: string): Promise<T> | null {
+  return (inflight.get(key) as Promise<T> | undefined) ?? null;
 }

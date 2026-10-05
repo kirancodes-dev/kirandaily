@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { FolderGit2, Github, Star } from 'lucide-react';
+import { AlertTriangle, FolderGit2, Github, Star } from 'lucide-react';
 import { useExtras } from '../../hooks/useExtras';
 import { useGitHubStats, useNow } from '../../hooks/useCodingStats';
 import { useToday } from '../../hooks/useToday';
 import { formatAgo } from '../../utils/integrations/cache';
 import type { GitHubStats } from '../../utils/integrations/github';
-import { addDays } from '../../utils/date';
+import { addDays, formatShortDate, toISODate } from '../../utils/date';
 import { normalizeUsername } from '../../utils/integrations/usernames';
 import { ContribGraph } from './ContribGraph';
 import { CardActions, ConnectForm, ConnectPanel, ErrorBlock, ExternalLink, IntegrationCard, LoadingBlock, OfflineBlock, StatusLine } from './parts';
@@ -76,8 +76,12 @@ export function GitHubCard() {
 
 function GitHubBody({ data, now }: { data: GitHubStats; now: number }) {
   const today = useToday();
-  const { profile, repos, calendar } = data;
+  const { profile, repos, calendar, staleParts } = data;
   const [avatarFailed, setAvatarFailed] = useState(false);
+  // Push events cover the last 90 days – or less for a busy account (GitHub keeps 300 events).
+  const ninetyDays = addDays(today, -89);
+  const eventsFrom = calendar?.from && calendar.from > ninetyDays ? calendar.from : ninetyDays;
+  const eventsRange = eventsFrom > ninetyDays ? `since ${formatShortDate(eventsFrom)}` : 'last 90 days';
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -99,7 +103,7 @@ function GitHubBody({ data, now }: { data: GitHubStats; now: number }) {
         )}
         <div className="min-w-0">
           <p className="truncate text-lg font-semibold leading-tight">{profile.name ?? profile.login}</p>
-          <ExternalLink href={profile.htmlUrl} className="min-h-[32px] text-sm text-slate-600 hover:underline dark:text-slate-400">
+          <ExternalLink href={profile.htmlUrl} className="min-h-touch text-sm text-slate-600 hover:underline dark:text-slate-400">
             @{profile.login}
           </ExternalLink>
         </div>
@@ -125,26 +129,29 @@ function GitHubBody({ data, now }: { data: GitHubStats; now: number }) {
               <span className="text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">{calendar.total.toLocaleString('en-US')}</span>{' '}
               {calendar.source === 'contributions'
                 ? `contribution${calendar.total === 1 ? '' : 's'} in the last year`
-                : `commit${calendar.total === 1 ? '' : 's'} · recent activity (last 90 days)`}
+                : `commit${calendar.total === 1 ? '' : 's'} · recent activity (${eventsRange})`}
             </p>
+            {staleParts?.calendar !== undefined && <OlderCopyNote what="the graph" since={staleParts.calendar} now={now} />}
             <ContribGraph
               days={calendar.days}
               endDate={today}
               weeks={calendar.source === 'contributions' ? 53 : 14}
-              from={calendar.source === 'events' ? addDays(today, -89) : calendar.days[0]?.date}
-              label={calendar.source === 'contributions' ? 'GitHub contributions, last 12 months' : 'GitHub commits, last 90 days'}
+              from={calendar.source === 'events' ? eventsFrom : calendar.days[0]?.date}
+              until={staleParts?.calendar !== undefined ? toISODate(new Date(staleParts.calendar)) : undefined}
+              label={calendar.source === 'contributions' ? 'GitHub contributions, last 12 months' : `GitHub commits, ${eventsRange}`}
               unit={calendar.source === 'contributions' ? ['contribution', 'contributions'] : ['commit', 'commits']}
             />
           </>
         ) : (
           <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-            The contribution graph couldn’t be loaded right now. It’ll show up after the next refresh.
+            The contribution graph couldn’t be loaded just now. It’ll try again automatically in a few minutes, or tap Refresh.
           </p>
         )}
       </div>
 
       <div>
         <h4 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Recently pushed</h4>
+        {repos && staleParts?.repos !== undefined && <OlderCopyNote what="the repositories" since={staleParts.repos} now={now} />}
         {repos === null ? (
           <p className="text-sm text-slate-600 dark:text-slate-400">Repositories couldn’t be loaded right now.</p>
         ) : repos.length === 0 ? (
@@ -189,3 +196,15 @@ function GitHubBody({ data, now }: { data: GitHubStats; now: number }) {
   );
 }
 
+
+/** A part that failed to refresh is shown from the cache – and says so. */
+function OlderCopyNote({ what, since, now }: { what: string; since: number; now: number }) {
+  return (
+    <p className="mb-2 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+      <AlertTriangle size={14} aria-hidden className="mt-0.5 shrink-0" />
+      <span>
+        Couldn’t refresh {what} – showing {what === 'the graph' ? 'it' : 'them'} from {formatAgo(since, now)}.
+      </span>
+    </p>
+  );
+}

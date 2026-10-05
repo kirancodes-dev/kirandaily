@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { cacheKey, CACHE_MAX_AGE_MS, formatAgo, formatUpdatedAgo, isStale, readCache, shareRequest, writeCache, type CacheStorage } from './cache';
+import {
+  cacheKey,
+  CACHE_MAX_AGE_MS,
+  formatAgo,
+  formatUpdatedAgo,
+  isStale,
+  msUntilStale,
+  pruneCache,
+  readCache,
+  restoreCache,
+  runningRequest,
+  shareRequest,
+  writeCache,
+  type CacheStorage,
+} from './cache';
 
 class MemoryStorage implements CacheStorage {
   map = new Map<string, string>();
@@ -55,11 +69,35 @@ describe('stats cache', () => {
     writeCache(s, cacheKey('leetcode', 'kiran_lc'), { fetchedAt: NOW, data: { total: 1 } });
     writeCache(s, cacheKey('github', 'old-name'), { fetchedAt: NOW, data: { total: 1 } });
     writeCache(s, cacheKey('github', 'new-name'), { fetchedAt: NOW, data: { total: 2 } });
+    pruneCache(s, 'github', 'New-Name');
     expect([...s.map.keys()].sort()).toEqual([
       'kiran-planner:cache:github:new-name',
       'kiran-planner:cache:leetcode:kiran_lc',
       'kiran-planner:data',
     ]);
+  });
+
+  it('never removes another username’s cache when writing (a late answer for an old name)', () => {
+    const s = new MemoryStorage();
+    writeCache(s, cacheKey('github', 'new-name'), { fetchedAt: NOW, data: { total: 2 } });
+    writeCache(s, cacheKey('github', 'old-name'), { fetchedAt: NOW + 1, data: { total: 1 } });
+    expect(readCache(s, cacheKey('github', 'new-name'), schema)).toEqual({ fetchedAt: NOW, data: { total: 2 } });
+  });
+
+  it('clears a disconnected service and can put it back (Undo)', () => {
+    const s = new MemoryStorage();
+    s.map.set('kiran-planner:data', '{}');
+    writeCache(s, cacheKey('github', 'kiran'), { fetchedAt: NOW, data: { total: 3 } });
+    writeCache(s, cacheKey('leetcode', 'kiran_lc'), { fetchedAt: NOW, data: { total: 4 } });
+    const removed = pruneCache(s, 'github', null);
+    expect(removed.map(([k]) => k)).toEqual(['kiran-planner:cache:github:kiran']);
+    expect([...s.map.keys()].sort()).toEqual(['kiran-planner:cache:leetcode:kiran_lc', 'kiran-planner:data']);
+    restoreCache(s, removed);
+    expect(readCache(s, cacheKey('github', 'kiran'), schema)).toEqual({ fetchedAt: NOW, data: { total: 3 } });
+    // Only cache keys are ever restored.
+    restoreCache(s, [['kiran-planner:data', '{"evil":true}']]);
+    expect(s.map.get('kiran-planner:data')).toBe('{}');
+    expect(pruneCache(null, 'github', null)).toEqual([]);
   });
 
   it('never throws when storage is full or missing', () => {
@@ -80,6 +118,13 @@ describe('stats cache', () => {
     expect(isStale(NOW + 60_000, NOW)).toBe(false);
   });
 
+  it('says how long until the data is due', () => {
+    expect(msUntilStale(NOW - 2 * HOUR, NOW)).toBe(4 * HOUR);
+    expect(msUntilStale(NOW - 6 * HOUR, NOW)).toBeNull();
+    expect(msUntilStale(NOW - 10 * 60_000, NOW, 30 * 60_000)).toBe(20 * 60_000);
+    expect(msUntilStale(NOW + 10 * 60_000, NOW)).toBeNull(); // from the future: due now
+  });
+
   it('describes how old the data is', () => {
     expect(formatUpdatedAgo(NOW - 20_000, NOW)).toBe('Updated just now');
     expect(formatUpdatedAgo(NOW + 5_000, NOW)).toBe('Updated just now');
@@ -98,9 +143,11 @@ describe('stats cache', () => {
       runs++;
       return new Promise<number>((resolve) => (finish = resolve));
     };
+    expect(runningRequest('k')).toBeNull();
     const a = shareRequest('k', run);
     const b = shareRequest('k', run);
     expect(runs).toBe(1);
+    expect(runningRequest('k')).toBe(a);
     finish(7);
     expect(await a).toBe(7);
     expect(await b).toBe(7);
@@ -109,6 +156,7 @@ describe('stats cache', () => {
     expect(runs).toBe(2);
     finish(8);
     expect(await c).toBe(8);
+    expect(runningRequest('k')).toBeNull();
 
     const failing = shareRequest('f', () => Promise.reject(new Error('down')));
     await expect(failing).rejects.toThrow('down');

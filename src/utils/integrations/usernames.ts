@@ -20,14 +20,34 @@ const HOSTS: Record<Service, RegExp> = {
 };
 
 /**
+ * First path segments of links that aren't profiles ("github.com/settings/…",
+ * "leetcode.com/problems/two-sum/"). Neither site lets anyone register these names.
+ */
+const RESERVED: Record<Service, Set<string>> = {
+  github: new Set(
+    'about account apps blog codespaces collections contact copilot customer-stories dashboard enterprise events explore features gist issues join login logout marketplace new notifications organizations orgs pricing pulls readme search security sessions settings signup site sponsors stars team topics trending users watching'.split(
+      ' ',
+    ),
+  ),
+  leetcode: new Set(
+    'accounts assessment company contest discuss explore interview jobs list notifications playground premium problems problemset progress store studyplan subscribe submissions support tag'.split(
+      ' ',
+    ),
+  ),
+};
+
+/**
  * Turns what people type or paste into a bare username:
  * "@kiran", "github.com/kiran", "https://leetcode.com/u/kiran/" → "kiran".
- * Returns null when the result isn't a valid username (or the link is for another site).
+ * Returns null when the result isn't a valid username, the link is for another site,
+ * or it's a link to a page that isn't a profile (e.g. a LeetCode problem).
  */
 export function normalizeUsername(input: string, service: Service): string | null {
   let s = input.trim().replace(/^https?:\/\//i, '');
+  const isLink = HOSTS[service].test(s);
   s = s.replace(HOSTS[service], '');
   s = s.replace(/^@/, '').split(/[/?#]/)[0];
+  if (isLink && RESERVED[service].has(s.toLowerCase())) return null;
   return isValidUsername(s) ? s : null;
 }
 

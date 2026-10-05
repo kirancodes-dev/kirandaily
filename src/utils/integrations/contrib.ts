@@ -24,7 +24,7 @@ export interface GraphCell {
   date: string;
   count: number;
   level: Level;
-  /** Before the data starts: drawn as an empty outline (unknown, not zero). */
+  /** Outside the days the data covers: drawn as an empty outline (unknown, not zero). */
   noData: boolean;
 }
 
@@ -66,9 +66,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /**
  * Builds `weeks` columns ending with the week that contains `endDate`.
- * Days after `endDate` are null; days before `from` (when given) are marked noData.
+ * Days after `endDate` are null; days before `from` or after `until` (when given,
+ * e.g. an older copy of the data) are marked noData.
  */
-export function buildGraph(days: DayCount[], endDate: string, weeks: number, from?: string): GraphData {
+export function buildGraph(days: DayCount[], endDate: string, weeks: number, from?: string, until?: string): GraphData {
   const counts = countsByDate(days);
   const scale = levelScale([...counts.values()]);
   const first = addDays(startOfWeek(endDate), -7 * (Math.max(1, weeks) - 1));
@@ -82,7 +83,7 @@ export function buildGraph(days: DayCount[], endDate: string, weeks: number, fro
         continue;
       }
       const count = counts.get(date) ?? 0;
-      col.push({ date, count, level: levelFor(count, scale), noData: !!from && date < from });
+      col.push({ date, count, level: levelFor(count, scale), noData: (!!from && date < from) || (!!until && date > until) });
     }
     cols.push(col);
   }

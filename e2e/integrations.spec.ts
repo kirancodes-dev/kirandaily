@@ -140,19 +140,36 @@ test('connect GitHub and LeetCode on the profile and see real numbers and graphs
   await graph.focus();
   await page.keyboard.press('ArrowUp');
   await expect(gh.getByText(/^Yesterday · \d+ contributions?$/)).toBeVisible();
+  // Touch: previous/next-day buttons (44 px), and a tap in the gap between squares picks the nearest one.
+  await gh.getByRole('button', { name: 'Next day' }).click();
+  await expect(gh.getByText('Today · 4 contributions')).toBeVisible();
+  await expect(gh.getByRole('button', { name: 'Next day' })).toBeDisabled();
+  await gh.getByRole('button', { name: 'Previous day' }).click();
+  await expect(gh.getByText(/^Yesterday · \d+ contributions?$/)).toBeVisible();
+  await gh.getByRole('button', { name: 'Previous day' }).click();
+  await expect(gh.getByText(/^Sat, Oct 3 · \d+ contributions?$/)).toBeVisible();
+  const oct4 = gh.locator('rect[data-date="2026-10-04"]');
+  const [x, y] = await Promise.all([oct4.getAttribute('x'), oct4.getAttribute('y')]);
+  await graph.locator('svg').click({ position: { x: Number(x) + 6, y: Number(y) - 1.5 } });
+  await expect(gh.getByText(/^Yesterday · \d+ contributions?$/)).toBeVisible();
+  const loginBox = await gh.getByRole('link', { name: /@kiran-dev/ }).boundingBox();
+  expect(loginBox!.height).toBeGreaterThanOrEqual(44);
   const repo = gh.getByRole('link', { name: /kiran-planner/ });
   await expect(repo).toHaveAttribute('href', 'https://github.com/kiran-dev/kiran-planner');
   await expect(repo).toHaveAttribute('target', '_blank');
   await expect(repo).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(gh.locator('img')).toHaveAttribute('src', 'https://avatars.githubusercontent.com/u/9?v=4');
   await expect(gh.getByText('Updated just now')).toBeVisible();
+  // Only the state is announced, not the age that changes every minute.
+  await expect(gh.getByRole('status')).toHaveText('Updated');
 
   const lc = await connect(page, 'leetcode-card', 'LeetCode username', '@kiran_lc');
   await expect(lc.getByTestId('leetcode-total')).toHaveText('142');
   const bars = lc.getByRole('list', { name: 'Solved by difficulty' });
   await expect(bars).toContainText('Easy80 · 56%');
   await expect(bars).toContainText('Medium50 · 35%');
-  await expect(bars).toContainText('Hard12 · 8%');
+  // 56.3 / 35.2 / 8.5 – rounded so the three add up to 100%.
+  await expect(bars).toContainText('Hard12 · 9%');
   await expect(lc.getByText('Today: 3 submissions')).toBeVisible();
   await expect(lc.getByRole('group', { name: /^LeetCode submissions, last 12 months: 8 submissions/ })).toBeVisible();
   await expect(lc.getByText('via alfa-leetcode-api')).toBeVisible();
@@ -272,7 +289,7 @@ test('cached stats show after a reload while the network is failing', async ({ p
 });
 
 test('change and disconnect a username, with undo', async ({ page }) => {
-  await mockApis(page);
+  const api = await mockApis(page);
   await open(page, '/profile');
   const gh = await connect(page, 'github-card', 'GitHub username', 'kiran-dev');
   await expect(gh.getByText('Kiran Dev')).toBeVisible();
@@ -280,6 +297,112 @@ test('change and disconnect a username, with undo', async ({ page }) => {
   await expect(gh.getByLabel('GitHub username')).toHaveValue('kiran-dev');
   await gh.getByRole('button', { name: 'Disconnect GitHub' }).click();
   await expect(gh.getByText('Connect your GitHub to see your contribution graph')).toBeVisible();
+  // Nothing of the disconnected account stays on the device…
+  const cacheKeys = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('kiran-planner:cache:github:')));
+  expect(await cacheKeys()).toEqual([]);
+  // …and Undo brings it back at once, without asking GitHub again.
+  const before = api.calls.length;
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(gh.getByText('Kiran Dev')).toBeVisible();
+  await expect(gh.getByText('Updated just now')).toBeVisible();
+  expect(await cacheKeys()).toEqual(['kiran-planner:cache:github:kiran-dev']);
+  expect(api.calls.length).toBe(before);
+});
+
+test('Refresh, then switching apps and back, still shows the new numbers', async ({ page }) => {
+  const api = await mockApis(page);
+  await open(page, '/dsa');
+  const card = await connect(page, 'leetcode-dsa-card', 'LeetCode username', 'kiran_lc');
+  await expect(card.getByText('Today: 3 submissions')).toBeVisible();
+
+  // Solved two more; the free API is slow. Tap Refresh, switch to LeetCode, come back.
+  api.set({
+    [ALFA_SOLVED]: { body: { solvedProblem: 144, easySolved: 81, mediumSolved: 51, hardSolved: 12 }, delayMs: 1500 },
+    [ALFA_CALENDAR]: { body: { submissionCalendar: JSON.stringify({ [OCT4]: 5, [OCT5]: 5 }) }, delayMs: 1500 },
+  });
+  await card.getByRole('button', { name: 'Refresh LeetCode stats' }).click();
+  await expect(card.getByRole('button', { name: 'Refreshing LeetCode stats' })).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(card.getByText('Today: 5 submissions')).toBeVisible();
+  await expect(card.getByText('144', { exact: true })).toBeVisible();
+  await expect(card.getByText('Updated just now')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Refresh LeetCode stats' })).toBeVisible();
+});
+
+test('a page left open refreshes by itself after 6 hours', async ({ page }) => {
+  const api = await mockApis(page);
+  await open(page, '/profile');
+  const gh = await connect(page, 'github-card', 'GitHub username', 'kiran-dev');
+  await expect(gh.locator('dd').nth(1)).toHaveText('34');
+  api.set({ [GH_USER]: { body: { ...(DEFAULTS[GH_USER] as { body: object }).body, followers: 35 } } });
+  await page.clock.fastForward(5 * HOUR);
+  await expect(gh.getByText('Updated 5 h ago')).toBeVisible();
+  await expect(gh.locator('dd').nth(1)).toHaveText('34');
+  await page.clock.fastForward(HOUR + 5000);
+  await expect(gh.locator('dd').nth(1)).toHaveText('35');
+  await expect(gh.getByText('Updated just now')).toBeVisible();
+});
+
+test('when only the graph and repos fail, the old ones stay (marked) and are retried soon', async ({ page }) => {
+  const api = await mockApis(page);
+  await open(page, '/profile');
+  const gh = await connect(page, 'github-card', 'GitHub username', 'kiran-dev');
+  await expect(gh.locator('rect[data-date="2026-10-05"]')).toHaveAttribute('data-count', '4');
+
+  // 7 hours later (spent on another page) the graph service, the events and the repo list are down; the profile works.
+  await page.goto('/#/notes');
+  api.set({ [GH_GRAPH]: { status: 500 }, [GH_EVENTS]: { status: 500 }, [GH_REPOS]: { status: 500 } });
+  api.set({ [GH_USER]: { body: { ...(DEFAULTS[GH_USER] as { body: object }).body, followers: 99 } } });
+  await page.clock.fastForward(7 * HOUR);
+  await page.goto('/#/profile');
+  await expect(gh.locator('dd').nth(1)).toHaveText('99');
+  await expect(gh.getByText('Updated just now')).toBeVisible();
+  await expect(gh.getByText('Couldn’t refresh the graph – showing it from 7 h ago.')).toBeVisible();
+  await expect(gh.getByText('Couldn’t refresh the repositories – showing them from 7 h ago.')).toBeVisible();
+  await expect(gh.getByText(`${TOTAL.toLocaleString('en-US')}`, { exact: true })).toBeVisible();
+  await expect(gh.locator('rect[data-date="2026-10-05"]')).toHaveAttribute('data-count', '4');
+  // It's now Oct 6 (2:45 AM): the old copy knows nothing about today.
+  await expect(gh.getByText('Today · no data')).toBeVisible();
+  await expect(gh.getByRole('link', { name: /kiran-planner/ })).toBeVisible();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('kiran-planner:cache:github:kiran-dev')!).data);
+  expect(saved.calendar.source).toBe('contributions');
+  expect(saved.repos).toHaveLength(2);
+
+  // Within 30 minutes nothing is asked again; after that it retries and the notes go away.
+  const before = api.calls.length;
+  await page.reload();
+  await expect(gh.getByText('Couldn’t refresh the graph – showing it from 7 h ago.')).toBeVisible();
+  expect(api.calls.length).toBe(before);
+  api.set({ [GH_GRAPH]: DEFAULTS[GH_GRAPH], [GH_REPOS]: DEFAULTS[GH_REPOS] });
+  await page.clock.fastForward(31 * 60 * 1000);
+  await expect(gh.getByText(/Couldn’t refresh the graph/)).toHaveCount(0);
+  await expect(gh.getByText(/Couldn’t refresh the repositories/)).toHaveCount(0);
+  await expect(gh.getByText('Today · 0 contributions')).toBeVisible();
+  expect(api.calls.length).toBeGreaterThan(before);
+});
+
+test('offline: cached stats with their age, and nothing is requested', async ({ page }) => {
+  const api = await mockApis(page);
+  await open(page, '/profile');
+  await connect(page, 'github-card', 'GitHub username', 'kiran-dev');
+  await connect(page, 'leetcode-card', 'LeetCode username', 'kiran_lc');
+  const gh = page.getByTestId('github-card');
+  const lc = page.getByTestId('leetcode-card');
+  await expect(gh.getByText('Kiran Dev')).toBeVisible();
+  await expect(lc.getByTestId('leetcode-total')).toHaveText('142');
+
+  // Seven hours later on another page (no stats card there to refresh), then offline.
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'onLine', { configurable: true, get: () => false }));
+  await page.goto('/#/notes');
+  await page.clock.fastForward(7 * HOUR);
+  await page.reload();
+  await page.goto('/#/profile');
+  const before = api.calls.length;
+  await expect(gh.getByText('Offline · Updated 7 h ago')).toBeVisible();
+  await expect(lc.getByText('Offline · Updated 7 h ago')).toBeVisible();
+  await expect(gh.getByText('Kiran Dev')).toBeVisible();
+  await expect(lc.getByTestId('leetcode-total')).toHaveText('142');
+  await gh.getByRole('button', { name: 'Refresh GitHub stats' }).click();
+  await expect(gh.getByText('Offline · Updated 7 h ago')).toBeVisible();
+  expect(api.calls.length).toBe(before);
 });

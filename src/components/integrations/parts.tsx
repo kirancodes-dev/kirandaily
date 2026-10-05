@@ -6,7 +6,8 @@ import { useAppData } from '../../hooks/useAppData';
 import { useExtras } from '../../hooks/useExtras';
 import { useToast } from '../../hooks/useToast';
 import type { CodingStatsState } from '../../hooks/useCodingStats';
-import { formatAgo } from '../../utils/integrations/cache';
+import { browserStorage, formatAgo, pruneCache, restoreCache } from '../../utils/integrations/cache';
+import { percentShares } from '../../utils/integrations/leetcode';
 import { normalizeUsername, SERVICE_NAMES, type Service } from '../../utils/integrations/usernames';
 
 /** Shared building blocks for the GitHub and LeetCode cards. */
@@ -87,42 +88,51 @@ export function CardActions({
   );
 }
 
-/** "Updated 3 h ago", or why the shown data may be old. */
+/**
+ * "Updated 3 h ago", or why the shown data may be old. Only the state ("Updated",
+ * "Refreshing…", "Offline", the error) is a live region; the age next to it ticks every
+ * minute and would otherwise be read out by VoiceOver each time.
+ */
 export function StatusLine<T>({ state, now, onRetry }: { state: CodingStatsState<T>; now: number; onRetry: () => void }) {
-  const age = state.fetchedAt !== null ? formatAgo(state.fetchedAt, now) : null;
-  let body: ReactNode;
+  const age =
+    state.fetchedAt !== null ? (
+      <time dateTime={new Date(state.fetchedAt).toISOString()}>{formatAgo(state.fetchedAt, now)}</time>
+    ) : null;
+  let live: ReactNode;
+  let rest: ReactNode = null;
+  let icon: ReactNode = null;
+  let tone = '';
   if (state.loading) {
-    body = (
-      <span className="flex items-center gap-1.5">
-        <RefreshCw size={14} aria-hidden className="motion-safe:animate-spin" /> Refreshing…{age && ` (showing data from ${age})`}
-      </span>
-    );
+    icon = <RefreshCw size={14} aria-hidden className="mt-0.5 shrink-0 motion-safe:animate-spin" />;
+    live = 'Refreshing…';
+    rest = age && <> (showing data from {age})</>;
   } else if (state.offline) {
-    body = (
-      <span className="flex items-center gap-1.5">
-        <CloudOff size={14} aria-hidden /> Offline · Updated {age}
-      </span>
-    );
+    icon = <CloudOff size={14} aria-hidden className="mt-0.5 shrink-0" />;
+    live = 'Offline ·';
+    rest = age && <> Updated {age}</>;
   } else if (state.error) {
-    body = (
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-amber-800 dark:text-amber-300">
-        <span className="flex items-start gap-1.5">
-          <AlertTriangle size={14} aria-hidden className="mt-0.5 shrink-0" />
-          <span>
-            Couldn’t refresh: {state.error.message} Showing data from {age === 'just now' ? 'a moment ago' : age}.
-          </span>
+    icon = <AlertTriangle size={14} aria-hidden className="mt-0.5 shrink-0" />;
+    tone = 'text-amber-800 dark:text-amber-300';
+    live = `Couldn’t refresh: ${state.error.message}`;
+    rest = age && <> Showing data from {state.fetchedAt !== null && now - state.fetchedAt < 60_000 ? 'a moment ago' : age}.</>;
+  } else {
+    live = 'Updated';
+    rest = age && <> {age}</>;
+  }
+  return (
+    <div className={`mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400 ${tone}`}>
+      <p className="flex items-start gap-1.5">
+        {icon}
+        <span>
+          <span role="status">{live}</span>
+          {rest}
         </span>
+      </p>
+      {state.error && !state.loading && !state.offline && (
         <button type="button" onClick={onRetry} className="min-h-touch rounded-lg px-2 font-semibold text-brand-700 underline dark:text-brand-300">
           Retry
         </button>
-      </span>
-    );
-  } else {
-    body = <span>Updated {age}</span>;
-  }
-  return (
-    <div role="status" className="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-      {body}
+      )}
     </div>
   );
 }
@@ -235,13 +245,21 @@ export function ConnectForm({
 
   const disconnect = () => {
     const previous = profileExtra.links[service];
+    // Nothing of a disconnected account stays on the device; Undo puts it back.
+    const removed = pruneCache(browserStorage(), service, null);
     save('');
     onDone?.();
     toast({
       id: `disconnect-${service}`,
       title: `${name} disconnected`,
       tone: 'info',
-      action: { label: 'Undo', onClick: () => save(previous) },
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          restoreCache(browserStorage(), removed);
+          save(previous);
+        },
+      },
     });
   };
 
@@ -298,9 +316,9 @@ export function ConnectPanel({ service, children }: { service: Service; children
   );
 }
 
-/** Easy / Medium / Hard with numbers and their share of all solved problems. */
+/** Easy / Medium / Hard with numbers and their share of all solved problems (shares add up to 100%). */
 export function DifficultyBars({ easy, medium, hard }: { easy: number; medium: number; hard: number }) {
-  const total = easy + medium + hard;
+  const shares = percentShares([easy, medium, hard]);
   const rows = [
     { label: 'Easy', value: easy, bar: 'bg-teal-500', text: 'text-teal-700 dark:text-teal-300' },
     { label: 'Medium', value: medium, bar: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-300' },
@@ -308,8 +326,8 @@ export function DifficultyBars({ easy, medium, hard }: { easy: number; medium: n
   ];
   return (
     <ul className="space-y-2.5" aria-label="Solved by difficulty">
-      {rows.map((r) => {
-        const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
+      {rows.map((r, i) => {
+        const pct = shares[i];
         return (
           <li key={r.label}>
             <div className="flex items-baseline justify-between text-sm">

@@ -27,6 +27,18 @@ describe('usernames', () => {
     expect(normalizeUsername('javascript:alert(1)', 'github')).toBeNull();
   });
 
+  it('rejects links to pages that are not profiles', () => {
+    expect(normalizeUsername('https://leetcode.com/problems/two-sum/', 'leetcode')).toBeNull();
+    expect(normalizeUsername('leetcode.com/contest/weekly-contest-400', 'leetcode')).toBeNull();
+    expect(normalizeUsername('https://leetcode.com/studyplan/top-interview-150/', 'leetcode')).toBeNull();
+    expect(normalizeUsername('https://github.com/settings/profile', 'github')).toBeNull();
+    expect(normalizeUsername('github.com/orgs/acme/repositories', 'github')).toBeNull();
+    expect(normalizeUsername('https://github.com/Topics/react', 'github')).toBeNull();
+    // Profile links and typed names still work.
+    expect(normalizeUsername('https://leetcode.com/u/problems_solver/', 'leetcode')).toBe('problems_solver');
+    expect(normalizeUsername('https://github.com/settings-fan', 'github')).toBe('settings-fan');
+  });
+
   it('builds profile links only for valid usernames', () => {
     expect(profileUrl('github', 'kiran')).toBe('https://github.com/kiran');
     expect(profileUrl('leetcode', 'kiran_lc')).toBe('https://leetcode.com/u/kiran_lc/');
