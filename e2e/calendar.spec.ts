@@ -176,7 +176,15 @@ test('export downloads valid .ics files for dates and the timetable', async ({ p
   await expect(page.getByText(/6 holidays fall on a college day: Oct 20, Oct 21, Nov 10, Dec 25, Jan 14, Jan 26/)).toBeVisible();
   expect(tt).toContain('EXDATE;TZID=Asia/Kolkata:20261020T090000');
   expect(tt).toContain('EXDATE;TZID=Asia/Kolkata:20270126T090000');
-  expect(tt.match(/^EXDATE/gm)!.length).toBe(6);
+  const exdates = tt.match(/^EXDATE.*$/gm)!;
+  expect(exdates.filter((l) => /:(20261020|20261021|20261110|20261225|20270114|20270126)T/.test(l)).length).toBe(6);
+  // Saturdays that follow a weekday timetable (31 Oct, 28 Nov, 12 Dec, 26 Dec) drop the weekend
+  // blocks and get College instead; nothing else is left out.
+  const makeUp = /:(20261031|20261128|20261212|20261226)T/;
+  expect(exdates.every((l) => /:(20261020|20261021|20261110|20261225|20270114|20270126)T/.test(l) || makeUp.test(l))).toBe(true);
+  expect(exdates.filter((l) => makeUp.test(l)).length).toBeGreaterThan(0);
+  expect(tt).toContain('RDATE;TZID=Asia/Kolkata:20261031T090000');
+  expect(tt.match(/^RDATE.*$/gm)!.every((l) => makeUp.test(l))).toBe(true);
 
   // Everything incl. sleep, 10 minutes early, open ended.
   await page.getByLabel('Everything, incl. wake-up, meals, travel and sleep').check();
@@ -190,14 +198,18 @@ test('export downloads valid .ics files for dates and the timetable', async ({ p
   expect(all).toContain('TRIGGER:-PT10M');
   expect(all).not.toContain('UNTIL=');
   // College plus the trips there and back are skipped on each of the 6 holidays.
-  expect(all.match(/^EXDATE/gm)!.length).toBe(18);
+  const holidayDays = /:(20261020|20261021|20261110|20261225|20270114|20270126)T/;
+  expect(all.match(/^EXDATE.*$/gm)!.filter((l) => holidayDays.test(l)).length).toBe(18);
   expect(all).toContain('EXDATE;TZID=Asia/Kolkata:20261020T080000'); // get ready + travel
 
   // The holidays can be kept in.
   await page.getByLabel(/No college or travel alerts on holidays/).uncheck();
   wait = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download timetable (.ics)' }).click();
-  expect(readFileSync((await (await wait).path())!, 'utf8')).not.toContain('EXDATE');
+  const kept = readFileSync((await (await wait).path())!, 'utf8');
+  expect((kept.match(/^EXDATE.*$/gm) ?? []).filter((l) => holidayDays.test(l))).toEqual([]);
+  // Only the make-up Saturdays still swap their blocks.
+  expect((kept.match(/^EXDATE.*$/gm) ?? []).every((l) => makeUp.test(l))).toBe(true);
 
   // Google ignores the file's alerts: the how-to says so.
   await page.getByText('In Google Calendar', { exact: true }).click();

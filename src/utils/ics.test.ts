@@ -3,7 +3,7 @@ import type { CalendarEvent } from '../types/extras';
 import type { TaskTemplate } from '../types/task';
 import { createDefaultData } from '../data/defaultData';
 import { createSemesterEvents } from '../data/semesterCalendar';
-import { holidayDates } from './events';
+import { holidayDates, timetableSwaps } from './events';
 import {
   escapeText,
   eventsToIcs,
@@ -21,6 +21,7 @@ import {
   parseIcs,
   recurrenceRule,
   skippedHolidays,
+  swapExceptions,
   templateToVevent,
   timetableTemplates,
   timetableToIcs,
@@ -279,6 +280,31 @@ describe('timetable export', () => {
       expect(skippedHolidays(blocks, holidays, '2026-10-05', '2027-02-10')).toEqual(['2026-10-20', '2026-10-21', '2026-11-10', '2026-12-25', '2027-01-14', '2027-01-26']);
       expect(skippedHolidays(blocks, holidays, '2026-10-05', '2026-10-20')).toEqual(['2026-10-20']);
       expect(skippedHolidays([gym], holidays, '2026-10-05')).toEqual([]);
+    });
+
+    it('follows the Saturdays that use a weekday timetable: weekday blocks are added, weekend ones dropped', () => {
+      const dayAs = timetableSwaps(createSemesterEvents());
+      // From 5 Oct: 31 Oct (Wed), 28 Nov (Fri), 12 Dec (Wed), 26 Dec (Mon) – September is already past.
+      expect(swapExceptions(college, dayAs, '2026-10-05', '2027-02-10')).toEqual({
+        removed: [],
+        added: ['2026-10-31', '2026-11-28', '2026-12-12', '2026-12-26'],
+      });
+      const lines = templateToVevent(college, { ...opts, until: '2027-02-10', holidays, dayAs })!;
+      expect(lines.filter((l) => l.startsWith('RDATE'))).toEqual([
+        'RDATE;TZID=Asia/Kolkata:20261031T090000',
+        'RDATE;TZID=Asia/Kolkata:20261128T090000',
+        'RDATE;TZID=Asia/Kolkata:20261212T090000',
+        'RDATE;TZID=Asia/Kolkata:20261226T090000',
+      ]);
+      // A Saturday-only block gives way on those days; gym (daily) is untouched.
+      const saturday = data.templates.find((t) => t.recurrence.type === 'saturday')!;
+      expect(swapExceptions(saturday, dayAs, '2026-10-05', '2027-02-10')).toEqual({
+        removed: ['2026-10-31', '2026-11-28', '2026-12-12', '2026-12-26'],
+        added: [],
+      });
+      expect(templateToVevent(saturday, { ...opts, dayAs })!).toContain('EXDATE;TZID=Asia/Kolkata:20261031T' + saturday.startTime.replace(':', '') + '00');
+      expect(swapExceptions(gym, dayAs, '2026-10-05')).toEqual({ removed: [], added: [] });
+      expect(swapExceptions(college, dayAs, '2026-11-01', '2026-12-01').added).toEqual(['2026-11-28']);
     });
 
     it('puts the EXDATEs into the whole file and keeps every line within 75 octets', () => {

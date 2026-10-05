@@ -10,6 +10,7 @@ import {
   rangeSummary,
   roadmapProgress,
   studyByCategory,
+  studyTargetMinutes,
   studyMinutesOnDate,
   subjectProgress,
   weeklyStudySeries,
@@ -130,5 +131,16 @@ describe('calculations', () => {
     ] });
     expect(w.weighted).toBe(true);
     expect(w.cgpa).toBeCloseTo(8.33, 2);
+  });
+});
+
+describe('study targets on calendar days', () => {
+  it('uses the weekday target on a Saturday that follows a weekday timetable', () => {
+    const ctx = buildStatsContext(createDefaultData());
+    const { weekday, saturday } = ctx.data.settings.studyTargets;
+    expect(dayStats(ctx, '2026-10-31').targetMinutes).toBe(weekday * 60);
+    expect(dayStats(ctx, '2026-11-07').targetMinutes).toBe(saturday * 60);
+    expect(studyTargetMinutes(ctx.data.settings, '2026-10-31')).toBe(saturday * 60);
+    expect(studyTargetMinutes(ctx.data.settings, '2026-10-31', ctx.index.dayAs)).toBe(weekday * 60);
   });
 });

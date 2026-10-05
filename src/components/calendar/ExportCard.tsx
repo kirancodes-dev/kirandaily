@@ -3,7 +3,7 @@ import { BellRing, CalendarArrowDown, ChevronDown, Download, Globe, GraduationCa
 import { useAppData } from '../../hooks/useAppData';
 import { useToast } from '../../hooks/useToast';
 import { formatShortDate } from '../../utils/date';
-import { holidayDates } from '../../utils/events';
+import { holidayDates, timetableSwaps } from '../../utils/events';
 import { deviceTimeZone, eventsToIcs, exportTimeZone, skippedHolidays, timetableTemplates, timetableToIcs } from '../../utils/ics';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
@@ -29,6 +29,7 @@ export function ExportCard({ today }: { today: string }) {
   const canStop = semesterEnd >= today;
   const until = stopAtSemesterEnd && canStop ? semesterEnd : undefined;
   const holidays = useMemo(() => holidayDates(data.events), [data.events]);
+  const dayAs = useMemo(() => timetableSwaps(data.events), [data.events]);
   // Holidays on which College (and the trips to it) would otherwise alert you.
   const offDays = useMemo(() => skippedHolidays(blocks, holidays, today, until), [blocks, holidays, today, until]);
   const alertOptions = ALERT_OPTIONS.includes(data.prefs.remindBeforeMinutes) ? ALERT_OPTIONS : [...ALERT_OPTIONS, data.prefs.remindBeforeMinutes].sort((a, b) => a - b);
@@ -47,15 +48,19 @@ export function ExportCard({ today }: { today: string }) {
       alertMinutes: alert === 'none' ? null : Number(alert),
       until,
       holidays: skipHolidays ? holidays : [],
+      // Saturdays that follow a weekday timetable get that day's blocks, like Today does.
+      dayAs,
       categories: data.categories,
     });
     downloadText('kiran-planner-timetable.ics', ics, ICS_TYPE);
     const skipped = skipHolidays && offDays.length > 0 ? ` College is left out on ${offDays.length} ${offDays.length === 1 ? 'holiday' : 'holidays'}.` : '';
+    const swapped = [...dayAs.keys()].filter((d) => d >= today && (!until || d <= until)).length;
+    const followed = swapped > 0 ? ` ${swapped} ${swapped === 1 ? 'Saturday follows' : 'Saturdays follow'} a weekday timetable.` : '';
     toast({
       id: 'ics-export',
       tone: 'success',
       title: 'Timetable downloaded',
-      body: `${blocks.length} repeating blocks in kiran-planner-timetable.ics.${skipped} Open it to add them.`,
+      body: `${blocks.length} repeating blocks in kiran-planner-timetable.ics.${skipped}${followed} Open it to add them.`,
     });
   };
 

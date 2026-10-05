@@ -53,7 +53,7 @@ export function WeekView({ date, today, onDateChange }: Props) {
       {/* Study targets + day selector (selector only matters on small screens) */}
       <div role="group" aria-label="Days of the week and study targets" className="grid grid-cols-7 gap-1">
         {dates.map((d) => {
-          const target = studyTargetMinutes(data.settings, d);
+          const target = studyTargetMinutes(data.settings, d, stats.index.dayAs);
           const done = studyMinutesOnDate(stats, d);
           const active = d === selectedDay;
           return (

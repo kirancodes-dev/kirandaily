@@ -36,6 +36,7 @@ import {
   shortTitle,
   sortEvents,
   timeText,
+  timetableSwaps,
   timingLabel,
   upcoming,
   validateEventForm,
@@ -413,5 +414,29 @@ describe('semester data', () => {
   it('has the 15 vs 22 Feb note on the even semester event', () => {
     const even = sem.find((e) => e.title === 'Even semester classes begin')!;
     expect(even.notes).toMatch(/15 Feb/);
+  });
+});
+
+describe('timetableSwaps', () => {
+  it('reads every "Saturday: X timetable followed" day of the semester', () => {
+    const swaps = timetableSwaps(createSemesterEvents());
+    expect([...swaps]).toEqual([
+      ['2026-09-12', 1],
+      ['2026-09-26', 2],
+      ['2026-10-31', 3],
+      ['2026-11-28', 5],
+      ['2026-12-12', 3],
+      ['2026-12-26', 1],
+    ]);
+  });
+
+  it('accepts other spellings, and ignores holidays and multi-day entries', () => {
+    const swaps = timetableSwaps([
+      ev({ date: '2026-11-07', title: "Monday's time-table" }),
+      ev({ date: '2026-11-14', title: 'Friday timetable', kind: 'holiday' }),
+      ev({ date: '2026-11-21', endDate: '2026-11-22', title: 'Tuesday timetable' }),
+      ev({ date: '2026-11-29', title: 'Timetable review' }),
+    ]);
+    expect([...swaps]).toEqual([['2026-11-07', 1]]);
   });
 });

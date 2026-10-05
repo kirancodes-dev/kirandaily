@@ -86,7 +86,7 @@ export function TaskCard({ task, onToggle, onOpenActions }: TaskCardProps) {
           <span aria-hidden>·</span>
           <span>{formatMinutes(task.duration)}</span>
         </div>
-        <h3 className={`mt-0.5 text-base font-semibold leading-snug ${done ? 'line-through decoration-2' : ''}`}>{task.title}</h3>
+        <h3 className={`mt-0.5 text-base font-semibold leading-snug [overflow-wrap:anywhere] ${done ? 'line-through decoration-2' : ''}`}>{task.title}</h3>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <CategoryChip id={task.category} />
           {subject && (
@@ -126,7 +126,7 @@ export function TaskCard({ task, onToggle, onOpenActions }: TaskCardProps) {
             </span>
           )}
         </div>
-        {task.notes && <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-400">{task.notes}</p>}
+        {task.notes && <p className="mt-1 line-clamp-2 text-sm text-slate-600 [overflow-wrap:anywhere] dark:text-slate-400">{task.notes}</p>}
       </div>
 
       <button

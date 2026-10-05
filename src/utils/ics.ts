@@ -9,7 +9,7 @@
 import type { CalendarEvent, EventKind } from '../types/extras';
 import type { CategoryDef, Recurrence, TaskTemplate } from '../types/task';
 import { addDays, dayOfWeek, isValidISODate, timeToMinutes, minutesToTime } from './date';
-import { recurrenceMatches, describeRecurrence } from './schedule';
+import { recurrenceMatches, describeRecurrence, isCollegeDayTemplate } from './schedule';
 import { currentTemplates } from './taskActions';
 import { EVENT_KINDS, KIND_LABELS, dayAfterEnd, eventEnd, guessKind, isMultiDay } from './events';
 
@@ -92,7 +92,7 @@ const VTIMEZONE_KOLKATA = [
   'END:VTIMEZONE',
 ];
 
-function timeProp(name: 'DTSTART' | 'DTEND' | 'EXDATE', date: string, time: string, tz: IcsTimeZone): string {
+function timeProp(name: 'DTSTART' | 'DTEND' | 'EXDATE' | 'RDATE', date: string, time: string, tz: IcsTimeZone): string {
   return tz ? `${name};TZID=${tz}:${icsDateTime(date, time)}` : `${name}:${icsDateTime(date, time)}`;
 }
 
@@ -188,16 +188,8 @@ export function firstOccurrence(rec: Recurrence, from: string): string | null {
 /** Routine items (wake, meals, travel, sleep) use the "routine" category. */
 const ROUTINE_CATEGORY = 'routine';
 
-/**
- * Blocks that only happen because there is college that day: College itself
- * (the "classes" category) and the trips to and from it. Study, gym, meals
- * and sleep still happen on a holiday.
- */
-const COLLEGE_DAY_KEYS = ['college', 'getready', 'travel'];
-
-export function isCollegeDayTemplate(t: Pick<TaskTemplate, 'key' | 'category'>): boolean {
-  return t.category === 'classes' || (!!t.key && COLLEGE_DAY_KEYS.includes(t.key));
-}
+// College-day blocks (college, travel) are left out on holidays, as in the app.
+export { isCollegeDayTemplate };
 
 /** First and last date (inclusive) a template repeats in an export, or null when it never happens. */
 function exportSpan(t: TaskTemplate, today: string, until?: string): { first: string; last?: string } | null {
@@ -214,6 +206,33 @@ export function holidayExceptions(t: TaskTemplate, holidays: string[], today: st
   const span = exportSpan(t, today, until);
   if (!span) return [];
   return holidays.filter((d) => d >= span.first && (!span.last || d <= span.last) && recurrenceMatches(t.recurrence, dayOfWeek(d)));
+}
+
+/**
+ * Days that follow another weekday's timetable ("Saturday: Monday timetable
+ * followed"): a block is dropped there (EXDATE) when only its own weekday
+ * matches, and added (RDATE) when only the followed weekday does.
+ */
+export function swapExceptions(
+  t: TaskTemplate,
+  dayAs: Map<string, number>,
+  today: string,
+  until?: string,
+  holidays: string[] = [],
+): { removed: string[]; added: string[] } {
+  const removed: string[] = [];
+  const added: string[] = [];
+  const span = exportSpan(t, today, until);
+  if (!span) return { removed, added };
+  const from = t.startDate > today ? t.startDate : today;
+  for (const [date, as] of [...dayAs].sort(([a], [b]) => a.localeCompare(b))) {
+    if (date < from || (span.last && date > span.last)) continue;
+    const own = recurrenceMatches(t.recurrence, dayOfWeek(date));
+    const followed = recurrenceMatches(t.recurrence, as);
+    if (own && !followed) removed.push(date);
+    else if (!own && followed && !(holidays.includes(date) && isCollegeDayTemplate(t))) added.push(date);
+  }
+  return { removed, added };
 }
 
 /** Holidays that fall on a college day of any of these blocks (for the export summary). */
@@ -236,6 +255,8 @@ export interface TimetableIcsOptions {
   until?: string;
   /** Holidays: college-day blocks (college, travel) are left out on these dates with EXDATE. */
   holidays?: string[];
+  /** Days that follow another weekday's timetable (date → 0-6), from timetableSwaps(). */
+  dayAs?: Map<string, number>;
   categories: CategoryDef[];
   calName?: string;
 }
@@ -245,6 +266,13 @@ function untilValue(date: string, tz: IcsTimeZone): string {
   if (!tz) return icsDateTime(date, '23:59').replace(/00$/, '59');
   const [y, m, d] = date.split('-').map(Number);
   return icsUtc(new Date(zonedWallToUtc({ y, m, d, h: 23, mi: 59, s: 59 }, tz)));
+}
+
+/** Dates the repeating block is left out: holidays and days that follow another weekday's timetable. */
+function exdates(t: TaskTemplate, opts: TimetableIcsOptions): string[] {
+  const holidays = holidayExceptions(t, opts.holidays ?? [], opts.today, opts.until);
+  const swapped = swapExceptions(t, opts.dayAs ?? new Map(), opts.today, opts.until).removed;
+  return [...new Set([...holidays, ...swapped])].sort();
 }
 
 export function templateToVevent(t: TaskTemplate, opts: TimetableIcsOptions): string[] | null {
@@ -270,7 +298,8 @@ export function templateToVevent(t: TaskTemplate, opts: TimetableIcsOptions): st
     timeProp('DTEND', endDate, t.endTime, opts.timeZone),
     `RRULE:${rule}`,
     // EXDATE has the same form (time zone or floating) as DTSTART, as RFC 5545 requires.
-    ...holidayExceptions(t, opts.holidays ?? [], opts.today, opts.until).map((d) => timeProp('EXDATE', d, t.startTime, opts.timeZone)),
+    ...exdates(t, opts).map((d) => timeProp('EXDATE', d, t.startTime, opts.timeZone)),
+    ...swapExceptions(t, opts.dayAs ?? new Map(), opts.today, opts.until, opts.holidays).added.map((d) => timeProp('RDATE', d, t.startTime, opts.timeZone)),
     `SUMMARY:${escapeText(t.title)}`,
     `DESCRIPTION:${escapeText(details.join('\n'))}`,
     `CATEGORIES:${escapeText(category)}`,

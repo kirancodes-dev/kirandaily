@@ -262,6 +262,22 @@ export function holidayDates(events: CalendarEvent[]): string[] {
   return [...new Set(events.filter((e) => e.kind === 'holiday').flatMap((e) => eventDays(e)))].sort();
 }
 
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/**
+ * Days that follow another weekday's timetable, from one-day entries such as
+ * "Saturday: Monday timetable followed" (date → 0 = Sunday … 6 = Saturday).
+ */
+export function timetableSwaps(events: CalendarEvent[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of sortEvents(events)) {
+    if (e.kind === 'holiday' || (e.endDate && e.endDate !== e.date)) continue;
+    const m = /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)(?:'s)?\s+time\s*-?table\b/i.exec(e.title);
+    if (m) out.set(e.date, WEEKDAY_NAMES.indexOf(m[1].toLowerCase()));
+  }
+  return out;
+}
+
 /** The semester's "Last working day" entry, if there is one. */
 export function lastWorkingDay(events: CalendarEvent[]): CalendarEvent | undefined {
   return sortEvents(events.filter((e) => /last working day/i.test(e.title))).pop();
