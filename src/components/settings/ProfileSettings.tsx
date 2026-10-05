@@ -7,25 +7,37 @@ import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { TextField } from '../common/Fields';
 import type { ThemePref } from '../../types/app';
+import { PROFILE_LIMITS, validateName } from '../../utils/profileForm';
 
 export function ProfileSettings() {
   const { data, update } = useAppData();
   const [name, setName] = useState(data.profile.name);
   const [saved, setSaved] = useState(false);
   const setTheme = (theme: ThemePref) => update((d) => ({ ...d, profile: { ...d.profile, theme } }));
+  // Same rule as Edit profile (not empty, max 60), so a name saved here never blocks that dialog.
+  const checked = validateName(name, data.profile.name);
   return (
     <Card title="Profile & theme">
       <form
         className="flex items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!name.trim()) return;
-          update((d) => ({ ...d, profile: { ...d.profile, name: name.trim() } }));
+          if (checked.error) return;
+          update((d) => ({ ...d, profile: { ...d.profile, name: checked.name } }));
+          setName(checked.name);
           setSaved(true);
         }}
       >
-        <TextField label="Name" className="flex-1" value={name} onChange={(e) => (setName(e.target.value), setSaved(false))} error={name.trim() ? null : 'Name can’t be empty.'} />
-        <Button type="submit" variant="primary" disabled={!name.trim() || name.trim() === data.profile.name}>
+        <TextField
+          label="Name"
+          className="flex-1"
+          value={name}
+          maxLength={Math.max(PROFILE_LIMITS.name, data.profile.name.length)}
+          autoComplete="name"
+          onChange={(e) => (setName(e.target.value), setSaved(false))}
+          error={checked.error}
+        />
+        <Button type="submit" variant="primary" disabled={!!checked.error || checked.name === data.profile.name}>
           Save
         </Button>
       </form>

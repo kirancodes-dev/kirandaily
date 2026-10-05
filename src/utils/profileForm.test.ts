@@ -9,6 +9,7 @@ import {
   normalizeUsername,
   profileLinks,
   shortUrl,
+  validateName,
   validateProfileForm,
   type ProfileFormValues,
 } from './profileForm';
@@ -103,6 +104,21 @@ describe('profile form', () => {
     expect(r.value?.extra.bio).toBe('Hi');
   });
 
+  it('limits the name to 60 characters, but never blocks a longer name that is already saved', () => {
+    expect(validateName('x'.repeat(60))).toEqual({ name: 'x'.repeat(60), error: null });
+    expect(validateName('x'.repeat(61)).error).toBe('Keep it under 60 characters.');
+    expect(validateName('  ').error).toBe('Name can’t be empty.');
+    // Saved earlier (e.g. from Settings before it had a limit): editing other fields still works.
+    const old = 'K'.repeat(61);
+    expect(validateName(old, old).error).toBeNull();
+    expect(validateName(` ${old} `, old).error).toBeNull();
+    const r = validateProfileForm({ ...base, name: old, headline: 'New headline' }, old);
+    expect(r.errors).toEqual({});
+    expect(r.value?.name).toBe(old);
+    // …but a different long name is still refused.
+    expect(validateProfileForm({ ...base, name: `${old}!` }, old).errors.name).toBe('Keep it under 60 characters.');
+  });
+
   it('checks the semester is 1–12 (or empty)', () => {
     expect(validateProfileForm({ ...base, semester: '0' }).errors.semester).toBeTruthy();
     expect(validateProfileForm({ ...base, semester: '13' }).errors.semester).toBeTruthy();
@@ -129,6 +145,15 @@ describe('profile form', () => {
       linkedin: 'https://linkedin.com/in/kiran',
       portfolio: 'https://kiran.dev',
     });
+  });
+
+  it('refuses links to pages that are not profiles, like the coding-profile cards do', () => {
+    const r = validateProfileForm({ ...base, github: 'https://github.com/settings/profile', leetcode: 'https://leetcode.com/problems/two-sum/' });
+    expect(r.errors.github).toBe('That link isn’t a profile — enter just your username.');
+    expect(r.errors.leetcode).toBe('That link isn’t a profile — enter just your username.');
+    // A user who is really called "settings" can still type the bare name.
+    expect(validateProfileForm({ ...base, github: 'settings' }).value?.extra.links.github).toBe('settings');
+    expect(validateProfileForm({ ...base, leetcode: 'https://leetcode.com/u/kiran_lc/' }).value?.extra.links.leetcode).toBe('kiran_lc');
   });
 
   it('produces data the schema accepts', () => {

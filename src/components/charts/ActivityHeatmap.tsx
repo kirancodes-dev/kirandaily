@@ -16,6 +16,9 @@ const HEAT_CLASSES: Record<HeatLevel, string> = {
   4: 'bg-[#216e39] dark:bg-[#39d353]',
 };
 
+/** Days before the plan started: an empty dashed outline (no data), never a grey "nothing done" square. */
+const BEFORE_CLASS = 'rounded-[3px] border border-dashed border-slate-300 dark:border-slate-700';
+
 const LEVEL_TEXT: Record<HeatLevel, string> = {
   0: 'nothing done',
   1: 'under 40%',
@@ -46,7 +49,9 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({ today, weeks = 52
   const planStart = data.settings.planStartDate;
   const firstShown = hm.columns[0][0].date;
 
-  const open = useCallback((date: string) => navigate(`/?date=${date}`), [navigate]);
+  // Today opens plain Today (no ?date=), so a page left open overnight moves on to the new day.
+  const open = useCallback((date: string) => navigate(date === today ? '/' : `/?date=${date}`), [navigate, today]);
+  const notStarted = planStart > today;
 
   return (
     <Card
@@ -60,15 +65,21 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({ today, weeks = 52
     >
       <HeatGrid hm={hm} today={today} weeks={weeks} onOpen={open} onHover={setHovered} />
 
-      <p className="mt-2 min-h-[1.25rem] text-sm text-slate-700 dark:text-slate-300" aria-hidden>
-        {hovered?.label ?? 'Tap a day to open it.'}
-      </p>
+      {notStarted ? (
+        <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+          Your plan starts on {formatLongDate(planStart)} — the graph fills in from there.
+        </p>
+      ) : (
+        <p className="mt-2 min-h-[1.25rem] text-sm text-slate-700 dark:text-slate-300" aria-hidden>
+          {hovered?.label ?? 'Tap a day to open it.'}
+        </p>
+      )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm">
         <p className="font-medium">
           <span className="tabular-nums">{hm.streakDays}</span> streak day{hm.streakDays === 1 ? '' : 's'} in the last year
         </p>
-        <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
+        <div className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-400">
           <span>Less</span>
           <ul className="flex gap-[3px]" aria-label="Colour legend">
             {([0, 1, 2, 3, 4] as const).map((l) => (
@@ -80,9 +91,12 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({ today, weeks = 52
           <span>More</span>
         </div>
       </div>
-      {planStart > firstShown && planStart <= today && (
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Your plan started on {formatLongDate(planStart)} — the graph fills in from there. Days are only counted once they’re done.
+      {planStart > firstShown && !notStarted && (
+        <p className="mt-2 flex items-start gap-2 text-sm text-slate-600 dark:text-slate-400">
+          <span aria-hidden className={`mt-1 h-3 w-3 shrink-0 ${BEFORE_CLASS}`} />
+          <span className="min-w-0">
+            Dashed squares are before your plan started ({formatLongDate(planStart)}). Days are only counted once they’re done.
+          </span>
         </p>
       )}
     </Card>
@@ -154,7 +168,7 @@ const HeatGrid = memo(function HeatGrid({ hm, today, weeks, onOpen, onHover }: G
       if (c.kind === 'future') {
         cells.push(<div key={c.date} aria-hidden />);
       } else if (c.kind === 'before') {
-        cells.push(<div key={c.date} aria-hidden className="aspect-square rounded-[3px] bg-slate-100 dark:bg-slate-800/40" />);
+        cells.push(<div key={c.date} aria-hidden className={`aspect-square ${BEFORE_CLASS}`} />);
       } else {
         cells.push(
           <button

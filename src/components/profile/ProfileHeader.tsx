@@ -82,17 +82,19 @@ export function ProfileHeader() {
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" tabIndex={-1} aria-label="Choose profile photo" onChange={onFile} />
 
-        <h2 id="profile-name" className="mt-3 break-words text-2xl font-bold tracking-tight">
+        <h2 id="profile-name" className="mt-3 break-words text-2xl font-bold tracking-tight [overflow-wrap:anywhere]">
           {data.profile.name}
         </h2>
-        {p.headline && <p className="mt-0.5 text-base text-slate-700 dark:text-slate-300">{p.headline}</p>}
+        {p.headline && <p className="mt-0.5 break-words text-base text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{p.headline}</p>}
         {schoolLine && (
-          <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
-            <GraduationCap size={16} aria-hidden className="shrink-0" />
-            {schoolLine}
+          <p className="mt-1 flex items-start gap-1.5 text-sm text-slate-600 dark:text-slate-400">
+            <GraduationCap size={16} aria-hidden className="mt-0.5 shrink-0" />
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">{schoolLine}</span>
           </p>
         )}
-        {p.bio && <p className="mt-3 whitespace-pre-line break-words text-[15px] leading-relaxed text-slate-800 dark:text-slate-200">{p.bio}</p>}
+        {p.bio && (
+          <p className="mt-3 whitespace-pre-line break-words text-[15px] leading-relaxed text-slate-800 [overflow-wrap:anywhere] dark:text-slate-200">{p.bio}</p>
+        )}
 
         {links.length > 0 ? (
           <ul aria-label="Links" className="mt-4 flex flex-wrap gap-2">

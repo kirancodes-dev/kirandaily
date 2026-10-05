@@ -3,6 +3,7 @@
  * safe link building for the profile header. Pure (unit tested).
  */
 import type { ProfileExtra } from '../types/extras';
+import { normalizeUsername as profileUsername } from './integrations/usernames';
 
 /** GitHub / LeetCode usernames: letters, digits, "_" and "-", up to 39 chars. */
 export const USERNAME_RE = /^[A-Za-z0-9_-]{1,39}$/;
@@ -102,12 +103,30 @@ export function normalizeUrl(input: string): string {
 export const githubUrl = (user: string) => `https://github.com/${encodeURIComponent(user)}`;
 export const leetcodeUrl = (user: string) => `https://leetcode.com/u/${encodeURIComponent(user)}/`;
 
-/** Checks and cleans the form. Empty optional fields are fine. */
-export function validateProfileForm(v: ProfileFormValues): ProfileFormResult {
+const cleanName = (input: string) => input.trim().replace(/\s+/g, ' ');
+
+/**
+ * The display name (used by Edit profile and Settings): trimmed, spaces
+ * collapsed, not empty, at most PROFILE_LIMITS.name characters. A longer name
+ * that is already saved (`current`, e.g. from an older version) is accepted
+ * as it is, so it never blocks saving the other fields.
+ */
+export function validateName(input: string, current?: string): { name: string; error: string | null } {
+  const name = cleanName(input);
+  if (!name) return { name, error: 'Name can’t be empty.' };
+  if (name.length > PROFILE_LIMITS.name && (current === undefined || name !== cleanName(current))) {
+    return { name, error: `Keep it under ${PROFILE_LIMITS.name} characters.` };
+  }
+  return { name, error: null };
+}
+
+const NOT_A_PROFILE = 'That link isn’t a profile — enter just your username.';
+
+/** Checks and cleans the form. Empty optional fields are fine. `currentName` = the name saved now. */
+export function validateProfileForm(v: ProfileFormValues, currentName?: string): ProfileFormResult {
   const errors: ProfileFormErrors = {};
-  const name = v.name.trim().replace(/\s+/g, ' ');
-  if (!name) errors.name = 'Name can’t be empty.';
-  else if (name.length > PROFILE_LIMITS.name) errors.name = `Keep it under ${PROFILE_LIMITS.name} characters.`;
+  const { name, error: nameError } = validateName(v.name, currentName);
+  if (nameError) errors.name = nameError;
 
   const headline = v.headline.trim();
   if (headline.length > PROFILE_LIMITS.headline) errors.headline = `Keep it under ${PROFILE_LIMITS.headline} characters.`;
@@ -123,10 +142,14 @@ export function validateProfileForm(v: ProfileFormValues): ProfileFormResult {
     else semester = n;
   }
 
+  // The coding-profile cards read the same fields, so a link to a page that isn't a
+  // profile ("github.com/settings", a LeetCode problem) is refused here as it is there.
   const github = normalizeUsername(v.github, ['github.com']);
   if (github && !isValidUsername(github)) errors.github = 'Use only letters, numbers, - and _ (max 39).';
+  else if (github && profileUsername(v.github, 'github') === null) errors.github = NOT_A_PROFILE;
   const leetcode = normalizeUsername(v.leetcode, ['leetcode.com']);
   if (leetcode && !isValidUsername(leetcode)) errors.leetcode = 'Use only letters, numbers, - and _ (max 39).';
+  else if (leetcode && profileUsername(v.leetcode, 'leetcode') === null) errors.leetcode = NOT_A_PROFILE;
 
   const linkedin = normalizeUrl(v.linkedin);
   if (linkedin && (!isHttpUrl(linkedin) || linkedin.length > PROFILE_LIMITS.url)) errors.linkedin = 'Enter a full link starting with https://';

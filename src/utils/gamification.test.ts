@@ -4,6 +4,7 @@ import {
   EMPTY_TOTALS,
   buildHeatmap,
   celebrationKey,
+  celebrationMessage,
   computeActivity,
   computeBadges,
   dayFlags,
@@ -326,6 +327,20 @@ describe('celebration', () => {
     expect(parseCelebrated('perfect')).toBe('perfect');
     expect(parseCelebrated('junk')).toBeNull();
     expect(parseCelebrated(null)).toBeNull();
+  });
+
+  it('says the day counts for the Day streak, except on a special day (streaks paused)', () => {
+    const normal = celebrationMessage('streak');
+    expect(normal.title).toBe('🔥 Streak day secured!');
+    expect(normal.body).toBe('80% of today’s tasks done — today counts for your Day streak (+20 XP).');
+    const special = celebrationMessage('streak', true);
+    expect(special.title).toBe('🔥 80% done — great day!');
+    expect(special.title).not.toMatch(/streak day/i);
+    expect(special.body).toContain('Streaks are paused today');
+    expect(special.body).not.toMatch(/counts for your Day streak/);
+    // A perfect day is still a perfect day, special or not, and never mentions the streak.
+    expect(celebrationMessage('perfect')).toEqual({ title: 'Perfect day! 🎉', body: 'Every task done today. That’s +30 bonus XP.' });
+    expect(celebrationMessage('perfect', true)).toEqual(celebrationMessage('perfect'));
   });
 
   it('skipped tasks count as out of the day', () => {

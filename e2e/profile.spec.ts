@@ -159,14 +159,38 @@ test('activity graph: today’s square describes the day and opens it', async ({
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width, 'horizontal overflow on Profile').toBeLessThanOrEqual(page.viewportSize()!.width);
 
+  // Dashed "before the plan" squares are explained.
+  await expect(page.getByText(/^Dashed squares are before your plan started \(Monday, October 5, 2026\)/)).toBeVisible();
+
   await cell.click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Good evening, Kiran');
   await expect(page.getByText('Monday, October 5, 2026')).toBeVisible();
+  // Today opens plain Today (no ?date=), so it keeps following the date.
+  await expect(page).toHaveURL(/#\/$/);
 
   // Same graph on Progress → Overview.
   await page.goto('/#/progress');
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mon, Oct 5: 17% done, 1.5 h study' })).toBeVisible();
+});
+
+test('activity graph: today’s square opens a Today that moves on after midnight', async ({ page }) => {
+  await open(page, '/profile', new Date('2026-10-05T23:58:00+05:30'));
+  await page.getByRole('button', { name: 'Mon, Oct 5: 0% done, 0 h study' }).click();
+  await expect(page.getByText('Monday, October 5, 2026')).toBeVisible();
+  await page.clock.fastForward('03:00');
+  await expect(page.getByText('Tuesday, October 6, 2026')).toBeVisible();
+  await expect(page.getByText('Looking back')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Daily motivation' })).toBeVisible();
+});
+
+test('activity graph: before the plan starts it says when it will fill in', async ({ page }) => {
+  await open(page, '/profile', new Date('2026-10-01T20:00:00+05:30'));
+  const graph = page.getByRole('group', { name: /^Daily activity for the last 52 weeks/ });
+  await expect(graph).toBeVisible();
+  await expect(graph.getByRole('button')).toHaveCount(0);
+  await expect(page.getByText('Your plan starts on Monday, October 5, 2026 — the graph fills in from there.')).toBeVisible();
+  await expect(page.getByText('Tap a day to open it.')).toHaveCount(0);
 });
 
 test('activity graph: arrow keys move between days and Enter opens one', async ({ page }) => {
@@ -197,6 +221,15 @@ test('Today: reaching 80% and 100% celebrates once per day', async ({ page }) =>
   await tick(page, ['German']); // 10/12 = 83%
   await expect(page.getByTestId('celebration')).toContainText('🔥 Streak day secured!');
   await expect(page.getByRole('status').filter({ hasText: 'Streak day secured!' })).toBeVisible(); // toast
+  // The confetti + glow cover the screen wherever the tick happened (the card is far above
+  // on phones), never block taps, and clear themselves after a few seconds.
+  const burst = page.getByTestId('celebration-burst');
+  await expect(burst).toBeVisible();
+  const viewport = page.viewportSize()!;
+  expect(await burst.boundingBox()).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+  expect(await burst.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
+  await expect(burst.locator('.kp-confetti-piece').first()).toBeAttached();
+  await expect(burst).toHaveCount(0, { timeout: 6000 });
 
   await tick(page, ['Revision', 'Sleep']); // 12/12
   await expect(page.getByTestId('celebration')).toContainText('Perfect day!');
@@ -234,6 +267,15 @@ test('Today: a day secured from another page is celebrated when Today opens', as
   await expect(page.getByTestId('celebration')).toHaveCount(0);
 });
 
+test('Today: no confetti under reduced motion (the banner and toast still show)', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await open(page);
+  await tick(page, ['Wake up', 'Gym', 'Bath + breakfast', 'Get ready + travel', 'College', 'Travel + rest', 'College subject', 'Dinner', 'Java', 'German']);
+  await expect(page.getByTestId('celebration')).toContainText('🔥 Streak day secured!');
+  await expect(page.getByRole('status').filter({ hasText: 'Streak day secured!' })).toBeVisible();
+  await expect(page.getByTestId('celebration-burst')).toHaveCount(0);
+});
+
 test('badges: "First tick" unlocks after one tick', async ({ page }) => {
   await open(page, '/profile');
   const first = page.getByRole('listitem').filter({ hasText: 'First tick' });
@@ -253,6 +295,13 @@ test('badges: "First tick" unlocks after one tick', async ({ page }) => {
 test('settings keeps name + theme and links to the full profile', async ({ page }) => {
   await open(page, '/settings');
   await expect(page.getByRole('heading', { name: 'Profile & theme' })).toBeVisible();
+  // Same name limit as Edit profile, so a name saved here can't block that dialog later.
+  const nameField = page.getByLabel('Name', { exact: true });
+  await expect(nameField).toHaveAttribute('maxlength', '60');
+  await nameField.fill('Kiran Kumar Reddy');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved.')).toBeVisible();
   await page.getByRole('link', { name: /Edit full profile/ }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Profile');
+  await expect(page.getByRole('heading', { name: 'Kiran Kumar Reddy' })).toBeVisible();
 });

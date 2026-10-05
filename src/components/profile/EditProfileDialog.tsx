@@ -39,7 +39,7 @@ function EditProfileForm({ onClose }: { onClose: () => void }) {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const result = validateProfileForm(values);
+    const result = validateProfileForm(values, data.profile.name);
     if (!result.value) {
       setErrors(result.errors);
       // Take the user to the first problem.
@@ -74,7 +74,7 @@ function EditProfileForm({ onClose }: { onClose: () => void }) {
           onChange={set('name')}
           error={errors.name}
           autoComplete="name"
-          maxLength={PROFILE_LIMITS.name}
+          maxLength={Math.max(PROFILE_LIMITS.name, data.profile.name.length)}
           required
         />
         <TextField

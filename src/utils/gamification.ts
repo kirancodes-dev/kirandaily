@@ -9,6 +9,7 @@ import { dayStats, getDayTasks } from './calculations';
 import { isStreakDay, streakFor, type StreakResult } from './streaks';
 import { addDays, eachDate, formatHours, parseISODate, startOfWeek } from './date';
 import type { Roadmap } from '../types/roadmap';
+import { scheduleConfig } from '../config/schedule';
 
 /* ───────────────────────── XP ───────────────────────── */
 
@@ -507,4 +508,25 @@ export function nextCelebration(prev: DayFlags, now: DayFlags, already: Celebrat
   if (now.perfect && !prev.perfect && already !== 'perfect') return 'perfect';
   if (now.streak && !prev.streak && already === null) return 'streak';
   return null;
+}
+
+export interface CelebrationMessage {
+  title: string;
+  body: string;
+}
+
+/**
+ * What the celebration says. On a special day (birthday, illness …) the Day
+ * streak is paused, so the 80 % message doesn't claim the day counts for it.
+ */
+export function celebrationMessage(kind: Celebration, special = false): CelebrationMessage {
+  const pct = scheduleConfig.streakDayThreshold;
+  if (kind === 'perfect') return { title: 'Perfect day! 🎉', body: `Every task done today. That’s +${XP_RULES.perfectDay} bonus XP.` };
+  if (special) {
+    return {
+      title: `🔥 ${pct}% done — great day!`,
+      body: `Streaks are paused today, so your Day streak stays as it is. Still +${XP_RULES.streakDay} XP.`,
+    };
+  }
+  return { title: '🔥 Streak day secured!', body: `${pct}% of today’s tasks done — today counts for your Day streak (+${XP_RULES.streakDay} XP).` };
 }

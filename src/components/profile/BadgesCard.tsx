@@ -83,7 +83,7 @@ export function BadgesCard({ badges }: { badges: Badge[] }) {
                 </span>
                 <p className={`min-w-0 font-semibold leading-tight ${b.unlocked ? '' : 'text-slate-600 dark:text-slate-400'}`}>{b.name}</p>
               </div>
-              <p className="mt-1.5 flex-1 text-xs leading-snug text-slate-600 dark:text-slate-400">{b.description}</p>
+              <p className="mt-1.5 flex-1 text-sm leading-snug text-slate-600 dark:text-slate-400">{b.description}</p>
               {b.unlocked ? (
                 <p className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
                   <CheckCircle2 size={16} aria-hidden /> Unlocked
