@@ -209,6 +209,14 @@ test('export, reset and import data', async ({ page }) => {
   await expect(page.getByRole('checkbox', { name: 'Mark Gym not done' })).toBeChecked();
 });
 
+test('cloud sync is off until Firebase is configured', async ({ page }) => {
+  await open(page, '/settings');
+  await expect(page.getByRole('heading', { name: 'Cloud sync' })).toBeVisible();
+  await expect(page.getByText('Off. Your data is saved only in this browser.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'How to set up cloud sync' })).toBeVisible();
+  await expect(page.getByRole('banner').getByRole('link', { name: /sync|offline/i })).toHaveCount(0); // no header badge
+});
+
 test('corrupted storage does not crash the app', async ({ page }) => {
   await page.clock.install({ time: START });
   await page.addInitScript(() => {

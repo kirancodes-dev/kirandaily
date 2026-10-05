@@ -52,7 +52,7 @@ export function DataSettings() {
   return (
     <Card title="Backup & data">
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
-        Your data lives only in this browser (localStorage). Export a backup regularly — clearing browser data deletes it.
+        Your data is saved in this browser and, if you are signed in to cloud sync, in your cloud account. Exporting a backup now and then is still a good idea.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         <Button icon={<Download size={18} aria-hidden />} onClick={doExport}>
@@ -119,7 +119,7 @@ export function DataSettings() {
         open={confirm === 'reset'}
         danger
         title="Reset all data?"
-        message="Every task change, session, note, project, review and setting will be deleted and the default schedule restored. Export a backup first if you might need it."
+        message="Every task change, session, note, project, review and setting will be deleted and the default schedule restored. If cloud sync is on, the cloud copy is reset too. Export a backup first if you might need it."
         confirmLabel="Reset everything"
         onCancel={() => setConfirm(null)}
         onConfirm={() => {

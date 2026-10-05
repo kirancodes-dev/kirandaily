@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { HashRouter, Route, Routes } from 'react-router-dom';
 import { AppDataProvider } from './state/AppDataContext';
 import { TimerProvider } from './state/TimerContext';
+import { SyncProvider } from './state/SyncContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import Today from './pages/Today';
@@ -30,6 +31,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppDataProvider>
+        <SyncProvider>
         <TimerProvider>
           <HashRouter>
             <Routes>
@@ -61,6 +63,7 @@ export default function App() {
             </Routes>
           </HashRouter>
         </TimerProvider>
+        </SyncProvider>
       </AppDataProvider>
     </ErrorBoundary>
   );

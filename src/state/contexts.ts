@@ -34,3 +34,20 @@ export interface TimerValue {
 }
 
 export const TimerContext = createContext<TimerValue | null>(null);
+
+export interface SyncValue {
+  /** Firebase config is filled in (src/config/firebase.ts). */
+  configured: boolean;
+  /** Firebase finished loading and the sign-in state is known. */
+  ready: boolean;
+  user: import('../sync/firebaseBackend').CloudUser | null;
+  status: import('../sync/engine').SyncStatus;
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+  syncNow: () => void;
+  resolveChoice: (choice: import('../sync/engine').SyncChoice) => void;
+  signInError: string | null;
+  clearSignInError: () => void;
+}
+
+export const SyncContext = createContext<SyncValue | null>(null);

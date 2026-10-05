@@ -2,7 +2,7 @@
 
 A mobile-first personal planner for Kiran: daily schedule, college, Java, DSA, German, projects, revision, gym (every day), sleep, study hours, weekly and monthly reviews, streaks and notes.
 
-- **No backend, no account, no paid API.** All personal data stays in your browser (`localStorage`).
+- **No backend server and no paid API.** Data is saved in your browser first. Optional **cloud sync** (free Firebase, Google sign-in) keeps it safe and the same on all your devices.
 - **Static site:** it deploys to GitHub Pages, Vercel or Netlify.
 - **Installable PWA:** after the first load it works offline.
 - **Plan start:** the timetable starts on **Monday, October 5, 2026** and repeats into later months.
@@ -150,14 +150,44 @@ Gym is protected. It repeats every day and its series can't be deleted. You can 
 
 ---
 
+## Cloud sync (Firebase)
+
+Turn this on to keep your planner in the cloud and use the same data on your phone and laptop. Until you set it up, the app works local-only in the browser exactly as before.
+
+**How it works.** Every change is saved on the device first, so the app stays instant and works offline. When you're signed in with Google, changes are also synced to **Cloud Firestore** under your own account (`users/<your-uid>/…`), and every signed-in device picks them up live. If two devices edit while one is offline, both sets of changes are merged when it reconnects; nothing is silently overwritten. Firebase's free Spark plan is far more than one person needs.
+
+### One-time setup (about 10 minutes, free)
+
+1. **Create a project.** Go to https://console.firebase.google.com, click **Create a project**, and give it a name (e.g. `kiran-planner`). You can turn Google Analytics off. Stay on the free **Spark** plan.
+2. **Add a web app.** Open **Project settings** (⚙️) → **Your apps** → **Web** (`</>`). Name it `Kiran Planner` and leave "Firebase Hosting" unticked. Then copy the `firebaseConfig` values it shows.
+3. **Paste the config.** Put those values into `pastedConfig` in **`src/config/firebase.ts`**, commit and push. They're public identifiers, not secrets, so they're safe in the repository. Your data is protected by sign-in and the security rules.
+4. **Turn on Google sign-in.** Open **Build → Authentication → Get started → Sign-in method → Google → Enable** and pick your support email.
+5. **Allow your website to sign in.** In **Authentication → Settings → Authorized domains → Add domain**, enter `kirancodes-dev.github.io`. `localhost` is already allowed for `npm run dev`.
+6. **Create the database.** Open **Build → Firestore Database → Create database**, choose **Standard edition** and a location near you (e.g. `asia-south1 (Mumbai)`), and start in **production mode**.
+7. **Publish the security rules.** In Firestore → **Rules**, replace everything with the contents of [`firestore.rules`](firestore.rules), then click **Publish**. If you use the Firebase CLI instead, run `npx firebase-tools login`, then `npx firebase-tools deploy --only firestore:rules --project <your-project-id>`.
+8. **Sign in from the app.** Open the app → **Settings → Cloud sync → Sign in with Google**. Do the same on your other devices with the same Google account.
+
+**First sign-in on a second device.** If that device also has its own data, the app asks whether to **merge both** (recommended), **use the cloud data**, or **use this device's data**.
+
+The header cloud icon shows the sync state: synced ✓, syncing, offline (will sync later), or a problem. Open **Settings → Cloud sync** for details, **Sync now** and **Sign out**. Signing out stops syncing, and your data stays on the device and in the cloud.
+
+**Optional extra lock.** In `firestore.rules`, `isAllowedAccount()` can restrict the whole database to your own Google email, so nobody else can even create an empty account space in your project.
+
+### Cloud sync tests
+
+```bash
+npm run test:rules   # security rules against the Firestore emulator (needs Java)
+npm run test:sync    # two "devices" syncing through the Auth + Firestore emulators (needs Java)
+```
+
 ## How data is stored
 
 - Everything is one JSON document in the browser's `localStorage` under the key `kiran-planner:data`. A running study timer is stored under `kiran-planner:timer`, so it survives refreshes and closed tabs.
 - Repeating tasks are stored once, as templates. The tasks for a given day are generated from them, and only the days you change are stored. This keeps the data small, and future months appear automatically.
 - Data is validated with Zod on load:
   - If storage is corrupted, the app still opens. It keeps a backup copy of the corrupted data under `kiran-planner:corrupt-backup:<time>` and repairs what it can (invalid items are dropped, duplicate ids are renamed and the gym routine is restored if missing), then shows a message.
-- Data is **per browser and per device**. Your phone and your laptop each have their own copy. Use export/import to move data between them.
-- Nothing is ever sent to a server.
+- Without cloud sync, data is **per browser and per device**. Your phone and your laptop each have their own copy, and export/import moves data between them. With **cloud sync** on, all your signed-in devices share one copy (see above).
+- Nothing is sent anywhere unless you turn on cloud sync, and then only to your own Firebase project.
 
 ### Backing up
 
@@ -167,9 +197,12 @@ Gym is protected. It repeats every day and its series can't be deleted. You can 
 
 Clearing your browser's site data deletes the planner data, so keep your exports somewhere safe, such as Google Drive. Don't commit personal backups to a public repository.
 
-### Adding cloud sync later
+### Sync code
 
-All reads and writes go through the `StorageAdapter` interface in `src/utils/storage.ts` (`load`, `save`, `backup`). To sync, write another adapter (for example one that calls a REST API) and pass it to `<AppDataProvider adapter={…}>` in `src/App.tsx`. The UI, hooks and calculations don't change.
+- `src/sync/chunks.ts` splits the data into a `core` document plus one document per month, and handles merging.
+- `src/sync/engine.ts` holds the sync logic (local first, compare-and-set uploads, merging), tested with a fake cloud.
+- `src/sync/firebaseBackend.ts` is the Google sign-in and Firestore code. It's loaded only when configured.
+- `src/state/SyncContext.tsx` connects it all to the app.
 
 ---
 

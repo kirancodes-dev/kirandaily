@@ -8,6 +8,8 @@ import { Banner } from '../common/Feedback';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import { formatClock } from '../../utils/timer';
 import { useApplyTheme } from '../../hooks/useTheme';
+import { SyncBadge } from '../sync/SyncBadge';
+import { SyncChoiceDialog } from '../sync/SyncChoiceDialog';
 
 function isActive(item: NavItem, pathname: string) {
   const path = item.to.split('?')[0];
@@ -103,6 +105,7 @@ export function AppLayout() {
           <span className="hidden lg:block" />
           <div className="flex items-center gap-1">
             <TimerPill />
+            <SyncBadge />
             {pathname !== '/search' && (
               <button
                 type="button"
@@ -135,6 +138,8 @@ export function AppLayout() {
           </ErrorBoundary>
         </main>
       </div>
+
+      <SyncChoiceDialog />
 
       {/* Mobile bottom navigation */}
       <nav

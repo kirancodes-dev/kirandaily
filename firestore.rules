@@ -1,0 +1,123 @@
+rules_version = '2';
+
+// ===============================================================
+// Kiran Planner – Firestore Security Rules (prototype, review before sharing the app)
+// ===============================================================
+//
+// Assumed Data Model
+// ------------------
+// Collection: users/{uid}/chunks
+// Document ID: "core" or "m-YYYY-MM" (one per month)
+// Fields:
+//   - v: int (required, == 1)                 – document format version
+//   - hash: string (required, 1–32 chars)     – content hash used for sync
+//   - editedAt: int (required, > 0)           – client time of the edit (ms), informational
+//   - device: string (required, 1–64 chars)   – random id of the device that wrote it
+//   - updatedAt: timestamp (required)         – must be the server time of the write
+//   - data: map (required)
+//       core:      profile, settings, categories, templates, subjects, roadmaps,
+//                  cgpa, goals, projects
+//       m-YYYY-MM: tasks, exclusions, dayLogs, sessions, problemLogs, germanLogs,
+//                  notes, weeklyReviews
+//
+// Only the signed-in owner can read or write their own documents. There are
+// no shared/public documents and no roles. Nested item fields are validated
+// by the app (Zod) when data is read; the rules check the document shape,
+// the top-level types and list sizes. Firestore limits a document to 1 MiB.
+//
+// The app reads with a collection query/listener on users/{uid}/chunks and
+// writes with a transaction (get + set). It never deletes documents.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helper functions ----------
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Optional: lock the whole database to your own Google account by
+    // replacing `true` with: request.auth.token.email == "you@gmail.com"
+    //   && request.auth.token.email_verified == true
+    function isAllowedAccount() {
+      return true;
+    }
+
+    function isValidChunkId(chunkId) {
+      return chunkId == 'core' || chunkId.matches('^m-[0-9]{4}-[0-9]{2}$');
+    }
+
+    function isList(value, maxSize) {
+      return value is list && value.size() <= maxSize;
+    }
+
+    function isString(value, minLen, maxLen) {
+      return value is string && value.size() >= minLen && value.size() <= maxLen;
+    }
+
+    // ---------- Domain validators ----------
+
+    function isValidCore(d) {
+      let keys = ['profile', 'settings', 'categories', 'templates', 'subjects', 'roadmaps', 'cgpa', 'goals', 'projects'];
+      return d.keys().hasOnly(keys) && d.keys().hasAll(keys)
+        && d.profile is map
+        && d.settings is map
+        && d.roadmaps is map
+        && d.cgpa is map
+        && isList(d.categories, 100)
+        && isList(d.templates, 3000)
+        && isList(d.subjects, 100)
+        && isList(d.goals, 500)
+        && isList(d.projects, 500);
+    }
+
+    function isValidMonth(d) {
+      let keys = ['tasks', 'exclusions', 'dayLogs', 'sessions', 'problemLogs', 'germanLogs', 'notes', 'weeklyReviews'];
+      return d.keys().hasOnly(keys) && d.keys().hasAll(keys)
+        && isList(d.tasks, 4000)
+        && isList(d.exclusions, 4000)
+        && isList(d.dayLogs, 31)
+        && isList(d.sessions, 3000)
+        && isList(d.problemLogs, 3000)
+        && isList(d.germanLogs, 1000)
+        && isList(d.notes, 1000)
+        && isList(d.weeklyReviews, 6);
+    }
+
+    function isValidChunk(chunkId, doc) {
+      let fields = ['v', 'hash', 'editedAt', 'device', 'updatedAt', 'data'];
+      return doc.keys().hasOnly(fields) && doc.keys().hasAll(fields)
+        && doc.v == 1
+        && isString(doc.hash, 1, 32)
+        && doc.editedAt is int && doc.editedAt > 0
+        && isString(doc.device, 1, 64)
+        && doc.updatedAt == request.time
+        && doc.data is map
+        && ((chunkId == 'core' && isValidCore(doc.data))
+            || (chunkId != 'core' && isValidMonth(doc.data)));
+    }
+
+    // ---------- Rules ----------
+
+    match /users/{userId}/chunks/{chunkId} {
+      allow read: if isOwner(userId) && isAllowedAccount();
+      // Same validator on create AND update.
+      allow create, update: if isOwner(userId) && isAllowedAccount()
+        && isValidChunkId(chunkId)
+        && isValidChunk(chunkId, request.resource.data);
+      // The app never deletes; use the Firebase Console if you want to wipe data.
+      allow delete: if false;
+    }
+
+    // Everything else is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
