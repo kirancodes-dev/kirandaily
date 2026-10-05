@@ -18,8 +18,12 @@ import {
   formToEvent,
   groupByMonth,
   guessKind,
+  holidayDates,
   isMultiDay,
   isNotableOn,
+  importantSoon,
+  alsoText,
+  splitHighlights,
   lastWorkingDay,
   markDuplicates,
   missingOfficial,
@@ -161,10 +165,30 @@ describe('countdowns and labels', () => {
   });
 
   it('shortens titles with a bracketed abbreviation', () => {
+    const official = (title: string) => sem.find((e) => e.title === title)!;
     expect(shortTitle(ia1)).toBe('IA-1');
-    expect(shortTitle({ title: 'Theory exams begin (SEE)' })).toBe('SEE');
-    expect(shortTitle({ title: 'Gandhi Jayanthi' })).toBe('Gandhi Jayanthi');
-    expect(shortTitle({ title: 'Value-added course: System on Chip (SoC) – Chip UVM' })).toBe('Value-added course: System on Chip (SoC) – Chip UVM');
+    expect(shortTitle(official('Theory exams begin (SEE)'))).toBe('SEE');
+    expect(shortTitle(official('Gandhi Jayanthi'))).toBe('Gandhi Jayanthi');
+    expect(shortTitle(official('Value-added course: System on Chip (SoC) – Chip UVM'))).toBe('Value-added course: System on Chip (SoC) – Chip UVM');
+    // Your own tests and exams are shortened the same way.
+    expect(shortTitle(ev({ title: 'DBMS lab internal (Lab-IA2)', date: '2026-11-02', kind: 'test' }))).toBe('Lab-IA2');
+    expect(shortTitle(ev({ title: 'Mock exam (Q2)', date: '2026-11-02', kind: 'exam' }))).toBe('Q2');
+  });
+
+  it('keeps the full title when the brackets are not an abbreviation', () => {
+    const own = (title: string, kind: CalendarEvent['kind'] = 'personal') => ev({ title, date: '2026-10-11', kind });
+    expect(shortTitle(own('Amma birthday (Sunday)'))).toBe('Amma birthday (Sunday)');
+    expect(shortTitle(own('Project review (online)', 'deadline'))).toBe('Project review (online)');
+    expect(shortTitle(own('Hackathon (Day 1)', 'event'))).toBe('Hackathon (Day 1)');
+    expect(shortTitle(own('Dentist (Dr. Rao)'))).toBe('Dentist (Dr. Rao)');
+    // Even abbreviation-like brackets stay on personal dates ("Trip (USA)" is not called "USA").
+    expect(shortTitle(own('Trip (USA)'))).toBe('Trip (USA)');
+    // A test whose brackets hold words, a date or only the abbreviation.
+    expect(shortTitle(own('Quiz (Sunday)', 'test'))).toBe('Quiz (Sunday)');
+    expect(shortTitle(own('Viva (2026)', 'test'))).toBe('Viva (2026)');
+    expect(shortTitle(own('(IA-1)', 'test'))).toBe('(IA-1)');
+    expect(countdownText(own('Amma birthday (Sunday)'), '2026-10-05')).toBe('Amma birthday (Sunday) is in 6 days');
+    expect(countdownText(own('Hackathon (Day 1)', 'event'), '2026-10-06')).toBe('Hackathon (Day 1) is in 5 days');
   });
 
   it('writes countdown sentences', () => {
@@ -317,12 +341,71 @@ describe('import helpers', () => {
     expect(guessKind('Extra lab class')).toBe('class');
     expect(guessKind('Amma birthday')).toBe('personal');
     expect(guessKind('Tech fest')).toBe('event');
+    expect(guessKind('SEE')).toBe('exam');
+    expect(guessKind('SEE begins')).toBe('exam');
+    expect(guessKind('Final exam: Compiler Design')).toBe('exam');
+  });
+
+  it('does not take the verb "see" or a sports final for an exam', () => {
+    expect(guessKind('See Priya off at the airport')).toBe('event');
+    expect(guessKind('See you at the farewell')).toBe('event');
+    expect(guessKind('Go see Interstellar')).toBe('event');
+    expect(guessKind('SEE YOU AT THE FAREWELL')).toBe('event');
+    expect(guessKind('Champions League final')).toBe('event');
+    expect(guessKind('Finals night with friends')).toBe('event');
+    // Even after an import, a mis-guessed date can't take over the "Next test / exam" countdown.
+    const imported = ev({ title: 'See Priya off at the airport', date: '2026-10-08', kind: guessKind('See Priya off at the airport'), source: 'import' });
+    expect(nextAssessment([...sem, imported], '2026-10-05')?.id).toBe(ia1.id);
+  });
+
+  it('lists every holiday date, multi-day ones day by day', () => {
+    const days = holidayDates([...sem, ev({ title: 'Diwali break', date: '2026-11-07', endDate: '2026-11-09', kind: 'holiday' })]);
+    expect(days).toContain('2026-10-20');
+    expect(days).toContain('2026-11-08');
+    expect(days).toEqual([...new Set(days)].sort());
+    expect(days.filter((d) => d === '2026-11-10')).toHaveLength(1);
+    expect(holidayDates([])).toEqual([]);
   });
 
   it('finds deleted official dates', () => {
     expect(missingOfficial(sem, sem)).toEqual([]);
     const without = sem.filter((e) => e.id !== ia1.id);
     expect(missingOfficial(without, sem)).toEqual([ia1]);
+  });
+});
+
+describe('Today card', () => {
+  it('gives holidays, tests, starred and timed events a row and puts the rest on one line', () => {
+    const { highlights, others } = splitHighlights(relevantOn(sem, '2026-10-05'));
+    expect(highlights).toEqual([]);
+    expect(others.map((e) => e.title)).toEqual(['AIML for Hydro Informatics', 'Overview of Geographical Information System']);
+    expect(splitHighlights(relevantOn(sem, '2026-10-24')).highlights.map((e) => e.title)).toEqual(['First Internal Assessment Test (IA-1)']);
+    expect(splitHighlights(relevantOn(sem, '2026-10-20')).highlights.map((e) => e.title)).toEqual(['Mahanavami']);
+    const talk = relevantOn(sem, '2026-10-31');
+    expect(splitHighlights(talk).highlights.map((e) => e.title)).toEqual(['Technical talk: RISC Processors']);
+    expect(splitHighlights(talk).others.map((e) => e.title)).toEqual(['Saturday: Wednesday timetable followed']);
+  });
+
+  it('writes the "Also today" text', () => {
+    const gis = sem.find((e) => e.title === 'Overview of Geographical Information System')!;
+    expect(alsoText(gis, '2026-10-05')).toBe('Overview of Geographical Information System (first day)');
+    expect(alsoText(gis, '2026-10-07')).toBe('Overview of Geographical Information System (day 3 of 26)');
+    expect(alsoText(gis, '2026-10-30')).toBe('Overview of Geographical Information System (last day)');
+    expect(alsoText(ev({ title: 'Club activity', date: '2026-11-28' }), '2026-11-28')).toBe('Club activity');
+  });
+
+  it('counts down only to starred dates within the horizon', () => {
+    expect(importantSoon(sem, '2026-10-05', 30).map((e) => e.title)).toEqual(['First Internal Assessment Test (IA-1)']);
+    // On IA-1's third day it is not "upcoming" any more; the parent–teacher meeting is 21 days away.
+    expect(importantSoon(sem, '2026-10-24', 30).map((e) => e.title)).toEqual(['Parent–Teacher Meeting']);
+    expect(importantSoon(sem, '2026-10-05', 70, 3).map((e) => e.title)).toEqual([
+      'First Internal Assessment Test (IA-1)',
+      'Parent–Teacher Meeting',
+      'Second Internal Assessment Test (IA-2)',
+    ]);
+    expect(importantSoon(sem, '2027-02-23', 30)).toEqual([]);
+    expect(importantSoon([ev({ title: 'Exactly 30', date: '2026-11-04', important: true })], '2026-10-05', 30)).toHaveLength(1);
+    expect(importantSoon([ev({ title: 'Day 31', date: '2026-11-05', important: true })], '2026-10-05', 30)).toHaveLength(0);
   });
 });
 

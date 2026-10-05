@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, FileText, HardDriveDownload, Paperclip, RefreshCw, Share, Trash2 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
-import { checkPdf, deleteFile, fileStoreAvailable, formatBytes, getFile, putFile, SEMESTER_PDF_KEY, type StoredFileMeta } from '../../utils/fileStore';
+import { asPdf, checkPdf, deleteFile, fileStoreAvailable, formatBytes, getFile, hasPdfSignature, PDF_TYPE, putFile, SEMESTER_PDF_KEY, type StoredFileMeta } from '../../utils/fileStore';
 import { formatShortDate, todayISO } from '../../utils/date';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
@@ -32,7 +32,8 @@ export function PdfCard({ sourceLabel }: { sourceLabel: string }) {
   useEffect(() => {
     if (!fileStoreAvailable()) return;
     let alive = true;
-    getFile(SEMESTER_PDF_KEY)
+    // Always rebuilt as a PDF, so "View PDF" shows it even if it was saved without a type.
+    getFile(SEMESTER_PDF_KEY, PDF_TYPE)
       .then((rec) => alive && show(rec))
       .catch(() => alive && setState({ status: 'unavailable' }));
     return () => {
@@ -68,8 +69,10 @@ export function PdfCard({ sourceLabel }: { sourceLabel: string }) {
     if (problem) return setError(problem);
     setBusy(true);
     try {
-      const meta = await putFile(SEMESTER_PDF_KEY, file);
-      show({ meta, blob: file });
+      if (!(await hasPdfSignature(file))) throw new Error('That file isn’t a PDF (it may have been renamed). Choose the original PDF.');
+      const pdf = asPdf(file);
+      const meta = await putFile(SEMESTER_PDF_KEY, pdf);
+      show({ meta, blob: pdf });
       toast({ id: 'pdf', tone: 'success', title: 'PDF saved on this device', body: meta.name });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The PDF could not be saved.');
@@ -91,7 +94,7 @@ export function PdfCard({ sourceLabel }: { sourceLabel: string }) {
 
   const share = async () => {
     if (state.status !== 'stored') return;
-    const file = new File([state.blob], state.meta.name, { type: 'application/pdf' });
+    const file = new File([state.blob], state.meta.name, { type: PDF_TYPE });
     try {
       await navigator.share({ files: [file], title: state.meta.name });
     } catch {

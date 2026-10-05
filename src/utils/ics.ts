@@ -92,7 +92,7 @@ const VTIMEZONE_KOLKATA = [
   'END:VTIMEZONE',
 ];
 
-function timeProp(name: 'DTSTART' | 'DTEND', date: string, time: string, tz: IcsTimeZone): string {
+function timeProp(name: 'DTSTART' | 'DTEND' | 'EXDATE', date: string, time: string, tz: IcsTimeZone): string {
   return tz ? `${name};TZID=${tz}:${icsDateTime(date, time)}` : `${name}:${icsDateTime(date, time)}`;
 }
 
@@ -188,6 +188,39 @@ export function firstOccurrence(rec: Recurrence, from: string): string | null {
 /** Routine items (wake, meals, travel, sleep) use the "routine" category. */
 const ROUTINE_CATEGORY = 'routine';
 
+/**
+ * Blocks that only happen because there is college that day: College itself
+ * (the "classes" category) and the trips to and from it. Study, gym, meals
+ * and sleep still happen on a holiday.
+ */
+const COLLEGE_DAY_KEYS = ['college', 'getready', 'travel'];
+
+export function isCollegeDayTemplate(t: Pick<TaskTemplate, 'key' | 'category'>): boolean {
+  return t.category === 'classes' || (!!t.key && COLLEGE_DAY_KEYS.includes(t.key));
+}
+
+/** First and last date (inclusive) a template repeats in an export, or null when it never happens. */
+function exportSpan(t: TaskTemplate, today: string, until?: string): { first: string; last?: string } | null {
+  const from = t.startDate > today ? t.startDate : today;
+  const last = [t.endDate, until].filter((x): x is string => !!x && isValidISODate(x)).sort()[0];
+  const first = firstOccurrence(t.recurrence, from);
+  if (!first || (last && first > last)) return null;
+  return { first, last };
+}
+
+/** Holidays on which a college-day block would otherwise repeat (they become EXDATEs). */
+export function holidayExceptions(t: TaskTemplate, holidays: string[], today: string, until?: string): string[] {
+  if (!isCollegeDayTemplate(t)) return [];
+  const span = exportSpan(t, today, until);
+  if (!span) return [];
+  return holidays.filter((d) => d >= span.first && (!span.last || d <= span.last) && recurrenceMatches(t.recurrence, dayOfWeek(d)));
+}
+
+/** Holidays that fall on a college day of any of these blocks (for the export summary). */
+export function skippedHolidays(templates: TaskTemplate[], holidays: string[], today: string, until?: string): string[] {
+  return [...new Set(templates.flatMap((t) => holidayExceptions(t, holidays, today, until)))].sort();
+}
+
 /** The current repeating timetable (active from today), optionally without routine items. */
 export function timetableTemplates(templates: TaskTemplate[], today: string, includeRoutine: boolean): TaskTemplate[] {
   return currentTemplates(templates, today).filter((t) => includeRoutine || t.category !== ROUTINE_CATEGORY);
@@ -201,6 +234,8 @@ export interface TimetableIcsOptions {
   alertMinutes: number | null;
   /** Stop repeating after this date (e.g. the semester's end), on top of each template's own end date. */
   until?: string;
+  /** Holidays: college-day blocks (college, travel) are left out on these dates with EXDATE. */
+  holidays?: string[];
   categories: CategoryDef[];
   calName?: string;
 }
@@ -213,11 +248,9 @@ function untilValue(date: string, tz: IcsTimeZone): string {
 }
 
 export function templateToVevent(t: TaskTemplate, opts: TimetableIcsOptions): string[] | null {
-  const from = t.startDate > opts.today ? t.startDate : opts.today;
-  const lastDates = [t.endDate, opts.until].filter((x): x is string => !!x && isValidISODate(x)).sort();
-  const last = lastDates[0];
-  const first = firstOccurrence(t.recurrence, from);
-  if (!first || (last && first > last)) return null;
+  const span = exportSpan(t, opts.today, opts.until);
+  if (!span) return null;
+  const { first, last } = span;
   const rule = recurrenceRule(t.recurrence, last ? untilValue(last, opts.timeZone) : undefined);
   if (!rule) return null;
   // Sleep (22:00 → 05:00) crosses midnight: it ends the next morning.
@@ -236,6 +269,8 @@ export function templateToVevent(t: TaskTemplate, opts: TimetableIcsOptions): st
     timeProp('DTSTART', first, t.startTime, opts.timeZone),
     timeProp('DTEND', endDate, t.endTime, opts.timeZone),
     `RRULE:${rule}`,
+    // EXDATE has the same form (time zone or floating) as DTSTART, as RFC 5545 requires.
+    ...holidayExceptions(t, opts.holidays ?? [], opts.today, opts.until).map((d) => timeProp('EXDATE', d, t.startTime, opts.timeZone)),
     `SUMMARY:${escapeText(t.title)}`,
     `DESCRIPTION:${escapeText(details.join('\n'))}`,
     `CATEGORIES:${escapeText(category)}`,
@@ -596,7 +631,10 @@ export function deviceTimeZone(): string | undefined {
   }
 }
 
-/** Time zone to write: Asia/Kolkata on a device set to India time (Chrome calls it Asia/Calcutta), floating local times anywhere else. */
-export function exportTimeZone(deviceZone = deviceTimeZone()): IcsTimeZone {
+/**
+ * Time zone to write: Asia/Kolkata on a device set to India time (Chrome calls
+ * it Asia/Calcutta), floating local times anywhere else. Pass deviceTimeZone().
+ */
+export function exportTimeZone(deviceZone: string | undefined): IcsTimeZone {
   return deviceZone === KOLKATA || deviceZone === 'Asia/Calcutta' ? KOLKATA : null;
 }

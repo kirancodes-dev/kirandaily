@@ -3,7 +3,8 @@ import { BellRing, CalendarArrowDown, ChevronDown, Download, Globe, GraduationCa
 import { useAppData } from '../../hooks/useAppData';
 import { useToast } from '../../hooks/useToast';
 import { formatShortDate } from '../../utils/date';
-import { eventsToIcs, exportTimeZone, timetableTemplates, timetableToIcs } from '../../utils/ics';
+import { holidayDates } from '../../utils/events';
+import { deviceTimeZone, eventsToIcs, exportTimeZone, skippedHolidays, timetableTemplates, timetableToIcs } from '../../utils/ics';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { SelectField } from '../common/Fields';
@@ -20,15 +21,20 @@ export function ExportCard({ today }: { today: string }) {
   const [includeRoutine, setIncludeRoutine] = useState(false);
   const [alert, setAlert] = useState<string>(String(data.prefs.remindBeforeMinutes));
   const [stopAtSemesterEnd, setStopAtSemesterEnd] = useState(true);
+  const [skipHolidays, setSkipHolidays] = useState(true);
 
   const datesToExport = onlyImportant ? data.events.filter((e) => e.important) : data.events;
   const blocks = useMemo(() => timetableTemplates(data.templates, today, includeRoutine), [data.templates, today, includeRoutine]);
   const semesterEnd = data.semesterInfo.endDate;
   const canStop = semesterEnd >= today;
+  const until = stopAtSemesterEnd && canStop ? semesterEnd : undefined;
+  const holidays = useMemo(() => holidayDates(data.events), [data.events]);
+  // Holidays on which College (and the trips to it) would otherwise alert you.
+  const offDays = useMemo(() => skippedHolidays(blocks, holidays, today, until), [blocks, holidays, today, until]);
   const alertOptions = ALERT_OPTIONS.includes(data.prefs.remindBeforeMinutes) ? ALERT_OPTIONS : [...ALERT_OPTIONS, data.prefs.remindBeforeMinutes].sort((a, b) => a - b);
 
   const exportDates = () => {
-    downloadText('kiran-planner-semester.ics', eventsToIcs(datesToExport, { now: new Date(), timeZone: exportTimeZone() }), ICS_TYPE);
+    downloadText('kiran-planner-semester.ics', eventsToIcs(datesToExport, { now: new Date(), timeZone: exportTimeZone(deviceTimeZone()) }), ICS_TYPE);
     toast({ id: 'ics-export', tone: 'success', title: 'Calendar file downloaded', body: `${datesToExport.length} dates in kiran-planner-semester.ics. Open it to add them.` });
   };
 
@@ -36,14 +42,21 @@ export function ExportCard({ today }: { today: string }) {
     const ics = timetableToIcs(data.templates, {
       today,
       now: new Date(),
-      timeZone: exportTimeZone(),
+      timeZone: exportTimeZone(deviceTimeZone()),
       includeRoutine,
       alertMinutes: alert === 'none' ? null : Number(alert),
-      until: stopAtSemesterEnd && canStop ? semesterEnd : undefined,
+      until,
+      holidays: skipHolidays ? holidays : [],
       categories: data.categories,
     });
     downloadText('kiran-planner-timetable.ics', ics, ICS_TYPE);
-    toast({ id: 'ics-export', tone: 'success', title: 'Timetable downloaded', body: `${blocks.length} repeating blocks in kiran-planner-timetable.ics. Open it to add them.` });
+    const skipped = skipHolidays && offDays.length > 0 ? ` College is left out on ${offDays.length} ${offDays.length === 1 ? 'holiday' : 'holidays'}.` : '';
+    toast({
+      id: 'ics-export',
+      tone: 'success',
+      title: 'Timetable downloaded',
+      body: `${blocks.length} repeating blocks in kiran-planner-timetable.ics.${skipped} Open it to add them.`,
+    });
   };
 
   return (
@@ -60,7 +73,7 @@ export function ExportCard({ today }: { today: string }) {
             Semester & important dates
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Holidays, IA tests, exams and your own dates as all-day events. Starred dates remind you the day before at 9 AM.
+            Holidays, IA tests, exams and your own dates as all-day events. In Apple Calendar, starred dates remind you the day before at 9 AM.
           </p>
           <label className="mt-3 flex min-h-touch items-center gap-3">
             <input type="checkbox" className="h-5 w-5 shrink-0" checked={onlyImportant} onChange={(e) => setOnlyImportant(e.target.checked)} />
@@ -123,6 +136,17 @@ export function ExportCard({ today }: { today: string }) {
               Stop repeating after the semester ({formatShortDate(semesterEnd)})
             </label>
           )}
+          {offDays.length > 0 && (
+            <label className="mt-2 flex min-h-touch items-start gap-3 py-1">
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={skipHolidays} onChange={(e) => setSkipHolidays(e.target.checked)} />
+              <span>
+                No college or travel alerts on holidays
+                <span className="block text-sm text-slate-600 dark:text-slate-400">
+                  {offDays.length} {offDays.length === 1 ? 'holiday falls' : 'holidays fall'} on a college day: {offDays.map((d) => formatShortDate(d)).join(', ')}
+                </span>
+              </span>
+            </label>
+          )}
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             {blocks.length > 0
               ? `${blocks.length} repeating ${blocks.length === 1 ? 'block' : 'blocks'}: ${[...new Set(blocks.map((b) => b.title))].slice(0, 4).join(', ')}${blocks.length > 4 ? '…' : ''}`
@@ -153,6 +177,10 @@ export function ExportCard({ today }: { today: string }) {
           <p>
             On a computer open calendar.google.com → Settings (gear) → <strong>Import & export</strong> → choose the file → pick a calendar → Import. The events then show on
             every device signed in to that Google account.
+          </p>
+          <p className="mt-2 rounded-lg bg-slate-100 px-2.5 py-1.5 dark:bg-slate-800">
+            <strong>Alerts:</strong> Google Calendar doesn’t import the alerts in the file. It uses that calendar’s default notifications instead — set them under Settings →
+            your calendar → <strong>Event notifications</strong>. For reliable alerts, add the files on your iPhone or Mac.
           </p>
         </HowTo>
       </div>

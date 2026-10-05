@@ -4,12 +4,12 @@ import { useAppData } from '../../hooks/useAppData';
 import { useToast } from '../../hooks/useToast';
 import { uid } from '../../utils/id';
 import { formatShortDate, parseISODate, WEEKDAY_SHORT } from '../../utils/date';
-import { markDuplicates, rangeText, timeText } from '../../utils/events';
+import { EVENT_KINDS, KIND_LABELS, markDuplicates, rangeText, timeText } from '../../utils/events';
+import type { EventKind } from '../../types/extras';
 import { importedToEvent, parseIcs, type ParsedIcsEvent } from '../../utils/ics';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { Banner } from '../common/Feedback';
-import { KindChip } from './EventBits';
 
 const MAX_ICS_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW = 500;
@@ -30,6 +30,8 @@ export function ImportCard({ onShowDates }: { onShowDates: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  /** Kinds changed in the preview (the guess from the title can be wrong). */
+  const [kinds, setKinds] = useState<Map<number, EventKind>>(new Map());
   const [important, setImportant] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +54,7 @@ export function ImportCard({ onShowDates }: { onShowDates: () => void }) {
         truncated: Math.max(0, result.events.length - MAX_PREVIEW),
       });
       setSelected(new Set(items.map((x, i) => (x.duplicate ? -1 : i)).filter((i) => i >= 0)));
+      setKinds(new Map());
       setImportant(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The file could not be read.');
@@ -64,20 +67,28 @@ export function ImportCard({ onShowDates }: { onShowDates: () => void }) {
 
   const doImport = () => {
     if (!preview) return;
-    const chosen = preview.items.filter((_, i) => selected.has(i)).map((x) => ({ ...importedToEvent(x.item, important || x.item.important), id: uid('evt') }));
-    // Re-check against the latest data so a double tap can't import twice.
-    update((d) => {
-      const fresh = markDuplicates(d.events, chosen).filter((x) => !x.duplicate).map((x) => x.item);
-      return { ...d, events: [...d.events, ...fresh] };
-    });
+    const chosen = preview.items
+      .map((x, i) => ({ x, i }))
+      .filter(({ i }) => selected.has(i))
+      .map(({ x, i }) => ({ ...importedToEvent({ ...x.item, kind: kinds.get(i) ?? x.item.kind }, important || x.item.important), id: uid('evt') }));
+    // Only what isn't in the calendar yet (a sync may have brought some in since the preview), and the toast says so.
+    const fresh = markDuplicates(data.events, chosen)
+      .filter((x) => !x.duplicate)
+      .map((x) => x.item);
+    setPreview(null);
+    if (fresh.length === 0) {
+      toast({ id: 'ics-import', tone: 'info', title: 'Nothing new to import', body: 'Those events are already in your calendar.' });
+      return;
+    }
+    // Checked again against the newest data inside update, so nothing is ever added twice.
+    update((d) => ({ ...d, events: [...d.events, ...markDuplicates(d.events, fresh).filter((x) => !x.duplicate).map((x) => x.item)] }));
     toast({
       id: 'ics-import',
       tone: 'success',
-      title: `Imported ${chosen.length} ${chosen.length === 1 ? 'event' : 'events'}`,
-      body: 'They are in your calendar now.',
+      title: `Imported ${fresh.length} ${fresh.length === 1 ? 'event' : 'events'}`,
+      body: chosen.length > fresh.length ? `${chosen.length - fresh.length} were already in your calendar.` : 'They are in your calendar now.',
       action: { label: 'See dates', onClick: onShowDates },
     });
-    setPreview(null);
   };
 
   const toggle = (i: number) =>
@@ -155,9 +166,10 @@ export function ImportCard({ onShowDates }: { onShowDates: () => void }) {
             {preview.items.map(({ item, duplicate }, i) => {
               const d = parseISODate(item.date);
               const extra = [rangeText(item), timeText(item)].filter(Boolean).join(' · ');
+              const kind = kinds.get(i) ?? item.kind;
               return (
-                <li key={`${item.uid}-${i}`}>
-                  <label className={`flex min-h-touch items-start gap-3 rounded-xl px-2 py-2 ${duplicate ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                <li key={`${item.uid}-${i}`} className={`flex flex-wrap items-start gap-x-2 rounded-xl ${duplicate ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                  <label className="flex min-h-touch min-w-0 flex-1 basis-48 items-start gap-3 px-2 py-2">
                     <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={selected.has(i)} disabled={duplicate} onChange={() => toggle(i)} />
                     <span className="min-w-0 flex-1">
                       <span className="block break-words font-medium">{item.title}</span>
@@ -166,7 +178,6 @@ export function ImportCard({ onShowDates }: { onShowDates: () => void }) {
                           {WEEKDAY_SHORT[d.getDay()]}, {formatShortDate(item.date)} {d.getFullYear()}
                         </span>
                         {extra && <span>{extra}</span>}
-                        <KindChip kind={item.kind} />
                         {item.recurring && (
                           <span className="inline-flex items-center gap-1">
                             <Repeat size={13} aria-hidden /> repeats – first date only
@@ -176,6 +187,21 @@ export function ImportCard({ onShowDates }: { onShowDates: () => void }) {
                       </span>
                     </span>
                   </label>
+                  {!duplicate && (
+                    // The type is guessed from the title: fix it here, e.g. so a "final" match doesn't count as an exam.
+                    <select
+                      aria-label={`Type of ${item.title}`}
+                      value={kind}
+                      onChange={(e) => setKinds((prev) => new Map(prev).set(i, e.target.value as EventKind))}
+                      className="mb-2 ml-10 min-h-touch shrink-0 rounded-xl border border-slate-300 bg-white px-2 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 sm:my-1.5 sm:ml-0 sm:mr-1"
+                    >
+                      {EVENT_KINDS.map((k) => (
+                        <option key={k} value={k}>
+                          {KIND_LABELS[k]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </li>
               );
             })}

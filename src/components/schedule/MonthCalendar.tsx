@@ -31,22 +31,21 @@ function rankEvents(list: CalendarEvent[]): CalendarEvent[] {
   return [...list].sort((a, b) => rank(a) - rank(b));
 }
 
-/** Small marker for a day's calendar events: star (important), palm (holiday) or a dot (other). */
+/**
+ * Small marker for a day's calendar events: palm (holiday) and/or star
+ * (important), or a dot (other). Holidays are never green: on this grid green
+ * means "tasks done".
+ */
 function EventMarker({ events }: { events: CalendarEvent[] }) {
   const top = events[0];
   const important = events.some((e) => e.important);
   const holiday = events.some((e) => e.kind === 'holiday');
   return (
-    <span className="flex w-full min-w-0 items-center gap-0.5 text-[10px] font-medium leading-tight text-slate-700 dark:text-slate-300 sm:gap-1 sm:text-xs">
-      {important ? (
-        <Star size={11} aria-hidden className="shrink-0 fill-amber-400 text-amber-500 dark:fill-amber-300 dark:text-amber-300" />
-      ) : holiday ? (
-        <TreePalm size={11} aria-hidden className="shrink-0 text-emerald-700 dark:text-emerald-400" />
-      ) : (
-        <span aria-hidden className="mx-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
-      )}
-      {important && holiday && <TreePalm size={11} aria-hidden className="hidden shrink-0 text-emerald-700 dark:text-emerald-400 sm:block" />}
-      <span className={`hidden min-w-0 truncate sm:inline ${holiday ? 'text-emerald-800 dark:text-emerald-300' : ''}`}>{shortTitle(top)}</span>
+    <span className="flex w-full min-w-0 items-center gap-px text-[10px] font-medium leading-tight text-slate-700 dark:text-slate-300 sm:gap-1 sm:text-xs">
+      {holiday && <TreePalm size={11} aria-hidden className="shrink-0 text-slate-600 dark:text-slate-300" />}
+      {important && <Star size={11} aria-hidden className="shrink-0 fill-amber-400 text-amber-500 dark:fill-amber-300 dark:text-amber-300" />}
+      {!holiday && !important && <span aria-hidden className="mx-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />}
+      <span className="hidden min-w-0 truncate sm:inline">{shortTitle(top)}</span>
       {events.length > 1 && <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">+{events.length - 1}</span>}
     </span>
   );
@@ -138,11 +137,11 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
                         d === today
                           ? 'border-brand-600 ring-1 ring-brand-600'
                           : holiday
-                            ? 'border-emerald-300 dark:border-emerald-800'
+                            ? 'border-dashed border-slate-400 dark:border-slate-500'
                             : 'border-slate-200 dark:border-slate-800'
                       } ${beforePlan ? 'opacity-50' : ''} ${
                         holiday
-                          ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-950'
+                          ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700'
                           : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800'
                       }`}
                     >
@@ -202,7 +201,7 @@ export function MonthCalendar({ year, month, today, onChange }: Props) {
           <Star size={14} aria-hidden className="fill-amber-400 text-amber-500" /> important date
         </span>
         <span className="inline-flex items-center gap-1">
-          <TreePalm size={14} aria-hidden className="text-emerald-700 dark:text-emerald-400" /> holiday (green day)
+          <TreePalm size={14} aria-hidden className="text-slate-600 dark:text-slate-300" /> holiday (grey day, dashed border)
         </span>
         <span className="inline-flex items-center gap-1">
           <span aria-hidden className="h-2 w-2 rounded-full bg-sky-500" /> other calendar event

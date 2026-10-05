@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CalendarPlus, ChevronDown, GraduationCap, ListFilter, Plus, RotateCcw, Star, TreePalm } from 'lucide-react';
 import type { CalendarEvent } from '../types/extras';
@@ -37,6 +37,21 @@ const FILTERS: { id: EventFilter; label: string; icon?: typeof Star }[] = [
 
 type Editing = { event: CalendarEvent | null; defaults?: Partial<EventFormValues> } | null;
 
+/**
+ * Gives keyboard focus back after a sheet closes. The shared Modal unmounts
+ * its <dialog> without close(), so the browser would drop focus to <body>.
+ * Runs after React has re-rendered: a saved row is found again by its id; a
+ * deleted one falls back to the selected tab.
+ */
+function focusBack(el: Element | null, eventId?: string) {
+  requestAnimationFrame(() => {
+    const byId = eventId ? document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(eventId)}"]`) : null;
+    const target =
+      (el instanceof HTMLElement && el.isConnected ? el : null) ?? byId ?? document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    target?.focus();
+  });
+}
+
 /** Semester calendar, important dates, and Apple / Google Calendar export & import. */
 export default function Calendar() {
   const today = useToday();
@@ -49,22 +64,30 @@ export default function Calendar() {
   const [editing, setEditing] = useState<Editing>(null);
   const [formKey, setFormKey] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<CalendarEvent | null>(null);
+  /** What had focus when the edit sheet / delete confirmation opened. */
+  const editOpener = useRef<{ el: Element | null; id?: string }>({ el: null });
+  const confirmOpener = useRef<Element | null>(null);
 
   const official = useMemo(() => createSemesterEvents(), []);
   const missing = missingOfficial(events, official);
 
   const setTab = (t: Tab) => setParams(t === 'upcoming' ? {} : { tab: t }, { replace: true });
   const open = (next: Editing) => {
+    editOpener.current = { el: document.activeElement, id: next?.event?.id };
     setFormKey((k) => k + 1);
     setEditing(next);
+  };
+  const closeForm = () => {
+    setEditing(null);
+    focusBack(editOpener.current.el, editOpener.current.id);
   };
   const addImportant = () => open({ event: null, defaults: { date: today, kind: 'personal', important: true } });
 
   const restore = (e: CalendarEvent) => update((d) => (d.events.some((x) => x.id === e.id) ? d : { ...d, events: [...d.events, e] }));
   const remove = (e: CalendarEvent) => {
     update((d) => ({ ...d, events: d.events.filter((x) => x.id !== e.id) }));
-    setEditing(null);
     setConfirmDelete(null);
+    closeForm();
     toast({ id: 'event-deleted', tone: 'info', title: `Deleted “${e.title}”`, action: { label: 'Undo', onClick: () => restore(e) }, duration: 8000 });
   };
 
@@ -78,7 +101,7 @@ export default function Calendar() {
       update((d) => ({ ...d, events: [...d.events, { ...fields, id: uid('evt'), source: 'user' }] }));
       toast({ id: 'event-saved', tone: 'success', title: fields.important ? 'Important date added' : 'Date added', body: fields.title });
     }
-    setEditing(null);
+    closeForm();
   };
 
   const toggleImportant = (e: CalendarEvent) => {
@@ -226,9 +249,13 @@ export default function Calendar() {
           event={editing.event}
           defaults={editing.defaults}
           today={today}
-          onClose={() => setEditing(null)}
+          onClose={closeForm}
           onSubmit={submit}
-          onDelete={(e) => (e.source === 'semester' ? setConfirmDelete(e) : remove(e))}
+          onDelete={(e) => {
+            if (e.source !== 'semester') return remove(e);
+            confirmOpener.current = document.activeElement;
+            setConfirmDelete(e);
+          }}
         />
       )}
       <ConfirmDialog
@@ -242,7 +269,10 @@ export default function Calendar() {
           </>
         }
         confirmLabel="Delete"
-        onCancel={() => setConfirmDelete(null)}
+        onCancel={() => {
+          setConfirmDelete(null);
+          focusBack(confirmOpener.current);
+        }}
         onConfirm={() => confirmDelete && remove(confirmDelete)}
       />
     </div>

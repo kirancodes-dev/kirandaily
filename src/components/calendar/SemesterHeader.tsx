@@ -31,8 +31,8 @@ export function SemesterHeader({ info, events, today }: Props) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-white/80">Semester calendar</p>
-          <h2 id="semester-title" className="text-xl font-bold leading-tight sm:text-2xl">
-            {info.title}
+          <h2 id="semester-title" className="text-balance text-xl font-bold leading-tight sm:text-2xl">
+            <KeepTogether text={info.title} />
           </h2>
           <p className="mt-0.5 text-sm text-white/85">{formatDateRange(info.startDate, info.endDate)}</p>
         </div>
@@ -93,6 +93,29 @@ export function SemesterHeader({ info, events, today }: Props) {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Keeps "AY 2026-27" on one line (it would otherwise break after the hyphen
+ * on an iPhone) and a " · " separator at the end of the line, not the start.
+ */
+function KeepTogether({ text }: { text: string }) {
+  return (
+    <>
+      {text
+        .replace(/ · /g, '\u00a0· ')
+        .split(/((?:\b[A-Z]{1,3} )?\S*\d-\d\S*)/)
+        .map((part, i) =>
+        i % 2 === 1 ? (
+          <span key={i} className="whitespace-nowrap">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
   );
 }
 

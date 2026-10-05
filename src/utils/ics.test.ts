@@ -3,6 +3,7 @@ import type { CalendarEvent } from '../types/extras';
 import type { TaskTemplate } from '../types/task';
 import { createDefaultData } from '../data/defaultData';
 import { createSemesterEvents } from '../data/semesterCalendar';
+import { holidayDates } from './events';
 import {
   escapeText,
   eventsToIcs,
@@ -10,13 +11,16 @@ import {
   exportTimeZone,
   firstOccurrence,
   foldLine,
+  holidayExceptions,
   icsUtc,
   importedToEvent,
+  isCollegeDayTemplate,
   KOLKATA,
   parseContentLine,
   parseDurationMinutes,
   parseIcs,
   recurrenceRule,
+  skippedHolidays,
   templateToVevent,
   timetableTemplates,
   timetableToIcs,
@@ -223,7 +227,67 @@ describe('timetable export', () => {
     expect(exportTimeZone('Asia/Kolkata')).toBe('Asia/Kolkata');
     expect(exportTimeZone('Asia/Calcutta')).toBe('Asia/Kolkata');
     expect(exportTimeZone('Europe/Berlin')).toBeNull();
+    // An unknown zone means floating times, whatever zone the machine running the test is in.
     expect(exportTimeZone(undefined)).toBeNull();
+    expect(exportTimeZone('')).toBeNull();
+  });
+
+  describe('official holidays', () => {
+    const holidays = holidayDates(createSemesterEvents());
+    const college = data.templates.find((t) => t.key === 'college')!;
+    const travel = data.templates.find((t) => t.key === 'travel')!;
+    const getReady = data.templates.find((t) => t.key === 'getready')!;
+    const gym = data.templates.find((t) => t.key === 'gym')!;
+
+    it('knows which blocks only happen on college days', () => {
+      expect([college, travel, getReady].every(isCollegeDayTemplate)).toBe(true);
+      expect(isCollegeDayTemplate(gym)).toBe(false);
+      expect(data.templates.filter(isCollegeDayTemplate).map((t) => t.title)).toEqual(['Get ready + travel', 'College', 'Travel + rest']);
+    });
+
+    it('leaves college out on weekday holidays with an EXDATE in the same form as DTSTART', () => {
+      const lines = templateToVevent(college, { ...opts, until: '2027-02-10', holidays })!;
+      const exdates = lines.filter((l) => l.startsWith('EXDATE'));
+      // Mahanavami, Vijayadashami, Balipadyami, Christmas, Makara Sankranthi, Republic Day – Gandhi Jayanthi is already past.
+      expect(exdates).toEqual([
+        'EXDATE;TZID=Asia/Kolkata:20261020T090000',
+        'EXDATE;TZID=Asia/Kolkata:20261021T090000',
+        'EXDATE;TZID=Asia/Kolkata:20261110T090000',
+        'EXDATE;TZID=Asia/Kolkata:20261225T090000',
+        'EXDATE;TZID=Asia/Kolkata:20270114T090000',
+        'EXDATE;TZID=Asia/Kolkata:20270126T090000',
+      ]);
+      expect(lines).toContain('DTSTART;TZID=Asia/Kolkata:20261005T090000');
+      const floating = templateToVevent(college, { ...opts, timeZone: null, holidays })!;
+      expect(floating).toContain('DTSTART:20261005T090000');
+      expect(floating).toContain('EXDATE:20261020T090000');
+      expect(floating.filter((l) => l.startsWith('EXDATE')).every((l) => /^EXDATE:\d{8}T\d{6}$/.test(l))).toBe(true);
+      const leave = templateToVevent(travel, { ...opts, holidays })!;
+      expect(leave).toContain('EXDATE;TZID=Asia/Kolkata:20261020T170000');
+    });
+
+    it('keeps study, gym and weekend blocks on holidays, and skips holidays outside the range or off the weekdays', () => {
+      expect(templateToVevent(gym, { ...opts, holidays })!.some((l) => l.startsWith('EXDATE'))).toBe(false);
+      // A Saturday holiday is not a weekday college day; one after UNTIL or before today is left out.
+      expect(holidayExceptions(college, ['2026-10-01', '2026-10-24', '2026-10-26', '2027-03-01'], '2026-10-05', '2027-02-10')).toEqual(['2026-10-26']);
+      expect(holidayExceptions(gym, holidays, '2026-10-05')).toEqual([]);
+      expect(holidayExceptions({ ...college, endDate: '2026-10-01' }, holidays, '2026-10-05')).toEqual([]);
+    });
+
+    it('counts the holidays that fall on college days for the summary', () => {
+      const blocks = timetableTemplates(data.templates, '2026-10-05', false);
+      expect(skippedHolidays(blocks, holidays, '2026-10-05', '2027-02-10')).toEqual(['2026-10-20', '2026-10-21', '2026-11-10', '2026-12-25', '2027-01-14', '2027-01-26']);
+      expect(skippedHolidays(blocks, holidays, '2026-10-05', '2026-10-20')).toEqual(['2026-10-20']);
+      expect(skippedHolidays([gym], holidays, '2026-10-05')).toEqual([]);
+    });
+
+    it('puts the EXDATEs into the whole file and keeps every line within 75 octets', () => {
+      const ics = timetableToIcs(data.templates, { ...opts, includeRoutine: true, until: '2027-02-10', holidays });
+      expect(ics.match(/^EXDATE;TZID=Asia\/Kolkata:20261020T\d{6}\r$/gm)!.length).toBe(3); // get ready, college, travel
+      expect(ics.split('\r\n').every((l) => utf8(l) <= 75)).toBe(true);
+      const parsed = parseIcs(ics, { timeZone: KOLKATA });
+      expect(parsed.events.length).toBe(timetableTemplates(data.templates, '2026-10-05', true).length);
+    });
   });
 });
 

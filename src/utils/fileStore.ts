@@ -15,6 +15,7 @@ const STORE = 'files';
 /** Key of the official semester calendar PDF. */
 export const SEMESTER_PDF_KEY = 'semester-calendar-pdf';
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+export const PDF_TYPE = 'application/pdf';
 
 export interface StoredFileMeta {
   name: string;
@@ -47,6 +48,33 @@ export function checkPdf(file: { name: string; type: string; size: number }): st
   if (file.size === 0) return 'That file is empty.';
   if (file.size > MAX_FILE_BYTES) return `The PDF is too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB).`;
   return null;
+}
+
+const PDF_SIGNATURE = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
+
+/**
+ * True when the file really is a PDF: "%PDF-" within its first 1024 bytes.
+ * Needed because a file picked by its ".pdf" name alone may be something else.
+ */
+export async function hasPdfSignature(file: Blob): Promise<boolean> {
+  try {
+    const head = new Uint8Array(await file.slice(0, 1024).arrayBuffer());
+    for (let i = 0; i + PDF_SIGNATURE.length <= head.length; i++) {
+      if (PDF_SIGNATURE.every((b, j) => head[i + j] === b)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The picked file typed as application/pdf. Some pickers report an empty type
+ * for downloaded or renamed files, and a blob without the PDF type is
+ * downloaded instead of shown by "View PDF".
+ */
+export function asPdf(file: Blob & { name?: string }): File {
+  return new File([file], file.name || 'calendar.pdf', { type: PDF_TYPE });
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -112,11 +140,15 @@ export async function putFile(key: string, file: Blob & { name?: string }): Prom
   return meta;
 }
 
-/** The stored file as a Blob plus its details, or null when there is none. */
-export async function getFile(key: string): Promise<{ meta: StoredFileMeta; blob: Blob } | null> {
+/**
+ * The stored file as a Blob plus its details, or null when there is none.
+ * `type` overrides the stored type (a PDF saved untyped by an older version).
+ */
+export async function getFile(key: string, type?: string): Promise<{ meta: StoredFileMeta; blob: Blob } | null> {
   const rec = (await run('readonly', (s) => s.get(key))) as StoredRecord | undefined;
   if (!rec || !rec.data) return null;
-  const { data, ...meta } = rec;
+  const { data, ...stored } = rec;
+  const meta = type ? { ...stored, type } : stored;
   return { meta, blob: new Blob([data], { type: meta.type }) };
 }
 

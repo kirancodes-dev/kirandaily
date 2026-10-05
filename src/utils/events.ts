@@ -137,10 +137,24 @@ export function timingLabel(e: EventDates, today: string): string {
   }
 }
 
-/** Abbreviation in brackets at the end of a title: "First Internal Assessment Test (IA-1)" → "IA-1". */
-export function shortTitle(e: Pick<CalendarEvent, 'title'>): string {
-  const m = /\(([^()]{1,12})\)\s*$/.exec(e.title);
-  return m ? m[1].trim() : e.title;
+/**
+ * An abbreviation such as "IA-1", "SEE", "SoC" or "Q2": one word of 2–8
+ * letters, digits or hyphens that starts with a capital and has a second
+ * capital or a digit. "(Sunday)", "(online)", "(Day 1)" or "(Dr. Rao)" are not.
+ */
+const ABBREVIATION = /^(?=[A-Z])(?=(?:[^A-Z]*[A-Z]){2}|[A-Z0-9-]*\d)[A-Za-z0-9-]{2,8}$/;
+
+/**
+ * Short name for countdowns and month cells: the abbreviation in brackets at
+ * the end of a test, exam or official semester title ("First Internal
+ * Assessment Test (IA-1)" → "IA-1"). Anything else keeps its full title, so
+ * "Amma birthday (Sunday)" never turns into "Sunday".
+ */
+export function shortTitle(e: Pick<CalendarEvent, 'title' | 'kind' | 'source'>): string {
+  if (e.source !== 'semester' && e.kind !== 'test' && e.kind !== 'exam') return e.title;
+  const m = /\(([^()]*)\)\s*$/.exec(e.title);
+  const abbr = m?.[1].trim();
+  return abbr && ABBREVIATION.test(abbr) && abbr.length < e.title.trim().length - 2 ? abbr : e.title;
 }
 
 /** "IA-1 starts in 17 days", "Last working day is tomorrow", "IA-1 test today", "IA-1 test · day 3 of 8". */
@@ -243,6 +257,11 @@ export function nextHoliday(events: CalendarEvent[], today: string): CalendarEve
   return nextEvent(events, today, (e) => e.kind === 'holiday');
 }
 
+/** Every date covered by a holiday (official or your own), sorted, without repeats. */
+export function holidayDates(events: CalendarEvent[]): string[] {
+  return [...new Set(events.filter((e) => e.kind === 'holiday').flatMap((e) => eventDays(e)))].sort();
+}
+
 /** The semester's "Last working day" entry, if there is one. */
 export function lastWorkingDay(events: CalendarEvent[]): CalendarEvent | undefined {
   return sortEvents(events.filter((e) => /last working day/i.test(e.title))).pop();
@@ -262,6 +281,28 @@ export function isNotableOn(e: CalendarEvent, date: string): boolean {
 /** Events worth showing on Today (and the month grid) for a date. */
 export function relevantOn(events: CalendarEvent[], date: string): CalendarEvent[] {
   return eventsOn(events, date).filter((e) => isNotableOn(e, date));
+}
+
+/** Gets a row of its own on Today: holidays, tests, exams, deadlines, starred or timed events. */
+export function isHighlight(e: CalendarEvent): boolean {
+  return e.important || e.startTime !== undefined || ALWAYS_SHOWN.includes(e.kind);
+}
+
+/** A day's events: highlights (one row each) and the rest (a single "Also today" line). */
+export function splitHighlights(events: CalendarEvent[]): { highlights: CalendarEvent[]; others: CalendarEvent[] } {
+  return { highlights: events.filter(isHighlight), others: events.filter((e) => !isHighlight(e)) };
+}
+
+/** Short form for the "Also today" line: "GIS course (first day)", "GIS course (day 3 of 26)". */
+export function alsoText(e: CalendarEvent, date: string): string {
+  const t = eventTiming(e, date);
+  if (t.phase !== 'ongoing') return e.title;
+  return `${e.title} (${t.dayIndex === 1 ? 'first day' : t.days === 0 ? 'last day' : `day ${t.dayIndex} of ${t.totalDays}`})`;
+}
+
+/** Starred dates that start after today and within `horizon` days, soonest first (at most n). */
+export function importantSoon(events: CalendarEvent[], today: string, horizon: number, n = Infinity): CalendarEvent[] {
+  return sortEvents(events.filter((e) => e.important && e.date > today && daysBetween(today, e.date) <= horizon)).slice(0, n);
 }
 
 /* ───────────────────────── semester progress ───────────────────────── */
@@ -392,11 +433,20 @@ export function markDuplicates<T extends Pick<CalendarEvent, 'title' | 'date'>>(
   });
 }
 
-/** Best guess of the kind from a title / category text. */
+/** "SEE" (Semester End Examination) only as the capitalised acronym, never the verb in "See Priya off". */
+function mentionsSee(text: string): boolean {
+  return /\(SEE\)|^\s*SEE\s*$/.test(text) || (/\bSEE\b/.test(text) && /[a-z]/.test(text));
+}
+
+/**
+ * Best guess of the kind from a title / category text, used for imported
+ * events. It errs towards "event": a wrong "exam" would take over the
+ * "Next test / exam" countdown ("Champions League final" is not an exam).
+ */
 export function guessKind(text: string): EventKind {
   const t = text.toLowerCase();
   if (/\b(holiday|jayant[hi]*|festival|diwali|deepavali|christmas|new year|republic day|independence day|vacation)\b/.test(t)) return 'holiday';
-  if (/\b(exams?|see|finals?|end[- ]sem(ester)?)\b/.test(t)) return 'exam';
+  if (/\b(exams?|examinations?|end[- ]sem(ester)?)\b/.test(t) || mentionsSee(text)) return 'exam';
   if (/\b(tests?|ia-?\d|quiz(zes)?|assessments?|viva|mid-?terms?)\b/.test(t)) return 'test';
   if (/\b(deadline|due|submission|submit|last date|registration)\b/.test(t)) return 'deadline';
   if (/\b(class(es)?|lectures?|lab|timetable)\b/.test(t)) return 'class';

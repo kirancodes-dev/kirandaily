@@ -39,6 +39,7 @@ export function EventRow({ event: e, today, onEdit, onToggleImportant }: RowProp
         type="button"
         onClick={() => onEdit(e)}
         aria-label={`Edit ${e.title}`}
+        data-event-id={e.id}
         aria-describedby={metaId}
         className="flex min-w-0 flex-1 items-start gap-3 rounded-2xl p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
       >
