@@ -5,16 +5,37 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#4f46e5" />
+    <!-- Browser UI colour per system theme; the app keeps it in step with its own theme setting. -->
+    <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#020617" media="(prefers-color-scheme: dark)" />
+    <!-- iPhone / iPad Home Screen app: full screen, content runs under the status bar (padded by safe-area insets). -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Planner" />
+    <meta name="application-name" content="Kiran Planner" />
+    <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="Kiran Planner – daily schedule, study, gym and progress tracker." />
     <title>Kiran Planner</title>
     <script>
+      // Installed on the Home Screen / Dock (see .kp-standalone in index.css).
+      try {
+        if (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches) {
+          document.documentElement.classList.add('kp-standalone');
+        }
+      } catch (e) {}
       // Apply the saved theme before first paint to avoid a flash.
       try {
         var d = JSON.parse(localStorage.getItem('kiran-planner:data') || '{}');
         var t = d && d.profile && d.profile.theme;
-        if (t === 'dark' || ((!t || t === 'system') && matchMedia('(prefers-color-scheme: dark)').matches)) {
+        var dark = t === 'dark' || ((!t || t === 'system') && matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) {
           document.documentElement.classList.add('dark');
+        }
+        // A fixed light/dark choice wins over the system theme for the browser UI colour too.
+        if (t === 'dark' || t === 'light') {
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', dark ? '#020617' : '#4f46e5');
         }
       } catch (e) {}
     </script>

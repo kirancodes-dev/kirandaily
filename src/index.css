@@ -3,12 +3,30 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Dynamic Island / status bar on iPhone (0 elsewhere). The top bar is 60px + this. */
+    --kp-safe-top: env(safe-area-inset-top, 0px);
+    --kp-topbar-h: calc(3.75rem + var(--kp-safe-top));
+    color-scheme: light;
+  }
+  :root.dark {
+    color-scheme: dark; /* native date pickers, selects and scrollbars follow the app theme */
+    @apply bg-slate-950;
+  }
   html {
     -webkit-tap-highlight-color: transparent;
     font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    /* Same colour as the page so iOS rubber-banding never shows a white or black gap. */
+    @apply bg-slate-50;
+    /* Focus and anchor jumps land below the sticky top bar. */
+    scroll-padding-top: calc(var(--kp-topbar-h) + 0.5rem);
+    text-rendering: optimizeLegibility;
   }
   body {
     @apply min-h-screen antialiased;
+  }
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
   }
   :focus-visible {
     @apply outline outline-2 outline-offset-2 outline-brand-500;
@@ -16,12 +34,141 @@
   input[type='checkbox'] {
     @apply accent-brand-600;
   }
+  /* No double-tap zoom or 300ms wait on controls; pinch zoom still works. */
+  a,
+  button,
+  input,
+  label,
+  select,
+  summary,
+  textarea,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+  /* Momentum scrolling for inner scroll areas on older iOS (modern iOS does this by default). */
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Scrolling inside a dialog never drags the page behind it. */
+  dialog,
+  dialog .overflow-y-auto {
+    overscroll-behavior: contain;
+  }
+  @media (max-width: 1023.98px) {
+    html {
+      scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+    }
+  }
+  /* Touch screens: text fields at 16px so iOS Safari does not zoom in when one is focused. */
+  @media (pointer: coarse) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']).text-sm,
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']).text-xs,
+    select.text-sm,
+    select.text-xs,
+    textarea.text-sm,
+    textarea.text-xs {
+      font-size: 16px;
+      line-height: 1.5rem;
+    }
+  }
+  /*
+   * Installed app (Home Screen / Dock): it should feel like an app, not a web page.
+   * index.html also sets .kp-standalone from navigator.standalone (iPhone) in case the media query is missing.
+   */
+  :root.kp-standalone,
+  :root.kp-standalone body {
+    overscroll-behavior-y: none; /* no pull-to-refresh, no bounce exposing the area above the top bar */
+  }
+  @media (display-mode: standalone) {
+    html,
+    body {
+      overscroll-behavior-y: none;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
       transition: none !important;
       animation: none !important;
+      scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer components {
+  .kp-topbar {
+    height: var(--kp-topbar-h);
+    padding-top: var(--kp-safe-top);
+  }
+
+  /*
+   * Installed on iPhone the status bar is "black-translucent": the page runs under it and
+   * its text is always white. In the light theme a brand-coloured strip keeps the clock
+   * and battery readable; in the dark theme the dark top bar already does.
+   */
+  .kp-statusbar {
+    display: none;
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 40;
+    height: var(--kp-safe-top);
+    pointer-events: none;
+    @apply bg-brand-600;
+  }
+  :root.kp-standalone:not(.dark) .kp-statusbar {
+    display: block;
+  }
+  @media (display-mode: standalone) {
+    :root:not(.dark) .kp-statusbar {
+      display: block;
+    }
+  }
+
+  /* Phone tab bar: no long-press link previews or text selection on the icons. */
+  .kp-tabbar a {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* A soft fade when switching pages (off with reduced motion, see above). */
+  .kp-page {
+    animation: kp-page-in 160ms ease-out;
+  }
+
+  .kp-pulse {
+    animation: kp-pulse 1.6s ease-in-out infinite;
+  }
+
+  /*
+   * Today on wide screens: the stats column is narrower than the window, so its
+   * 4-across tiles (sized by the viewport) are laid out 2-across instead.
+   */
+  @media (min-width: 1024px) {
+    .kp-today-side .md\:grid-cols-4 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+}
+
+@keyframes kp-page-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes kp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }
