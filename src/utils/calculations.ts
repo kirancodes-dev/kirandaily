@@ -48,8 +48,9 @@ export function getDayTasks(ctx: StatsContext, date: string): Task[] {
 
 /* ───────────────────────── study time ───────────────────────── */
 
-export function studyTargetMinutes(settings: Settings, date: string): number {
-  const dow = dayOfWeek(date);
+/** `dayAs` (from the schedule index) gives a Saturday that follows a weekday timetable the weekday target. */
+export function studyTargetMinutes(settings: Settings, date: string, dayAs?: Map<string, number>): number {
+  const dow = dayAs?.get(date) ?? dayOfWeek(date);
   const hours =
     dow === 6 ? settings.studyTargets.saturday : dow === 0 ? settings.studyTargets.sunday : settings.studyTargets.weekday;
   return Math.max(0, hours) * 60;
@@ -90,8 +91,8 @@ export function studyMinutesInRange(ctx: StatsContext, dates: string[]): number 
   return dates.reduce((sum, d) => sum + studyMinutesOnDate(ctx, d), 0);
 }
 
-export function studyTargetInRange(settings: Settings, dates: string[]): number {
-  return dates.reduce((sum, d) => sum + studyTargetMinutes(settings, d), 0);
+export function studyTargetInRange(settings: Settings, dates: string[], dayAs?: Map<string, number>): number {
+  return dates.reduce((sum, d) => sum + studyTargetMinutes(settings, d, dayAs), 0);
 }
 
 /** Study minutes for a subject (sessions + completed tasks linked to it). */
@@ -135,7 +136,7 @@ export function dayStats(ctx: StatsContext, date: string): DayStats {
     skipped,
     completionPct: countable > 0 ? Math.round((completed / countable) * 100) : null,
     studyMinutes: studyMinutesOnDate(ctx, date),
-    targetMinutes: studyTargetMinutes(ctx.data.settings, date),
+    targetMinutes: studyTargetMinutes(ctx.data.settings, date, ctx.index.dayAs),
     gymPlanned: gymTasks.length > 0,
     gymDone: gymTasks.some((t) => t.completed && !t.skipped),
     special: ctx.data.dayLogs.some((l) => l.date === date && !!l.special),
@@ -330,7 +331,7 @@ export function weeklyStudySeries(ctx: StatsContext, today: string, weeks = 8) {
       label: start.slice(5).replace('-', '/'),
       weekStart: start,
       hours: round1(studyMinutesInRange(ctx, dates) / 60),
-      target: round1(studyTargetInRange(ctx.data.settings, weekDates(start)) / 60),
+      target: round1(studyTargetInRange(ctx.data.settings, weekDates(start), ctx.index.dayAs) / 60),
       gymDays: rangeSummary(ctx, weekDates(start), today).gymDays,
     };
   }).filter((w) => w.weekStart >= firstWeek);

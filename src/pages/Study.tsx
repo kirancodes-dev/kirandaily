@@ -53,7 +53,7 @@ export default function Study() {
         id: p,
         label: p === 'today' ? 'Today' : p === 'week' ? 'This week' : 'This month',
         done: studyMinutesInRange(stats, ranges[p]),
-        target: studyTargetInRange(data.settings, periods[p].filter((d) => d >= data.settings.planStartDate)),
+        target: studyTargetInRange(data.settings, periods[p].filter((d) => d >= data.settings.planStartDate), stats.index.dayAs),
       })),
     [stats, ranges, periods, data.settings],
   );

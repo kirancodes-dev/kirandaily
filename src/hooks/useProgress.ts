@@ -49,7 +49,7 @@ export function useWeekSummary(date: string, today: string) {
     return {
       dates,
       summary: rangeSummary(stats, dates, today),
-      weekTarget: studyTargetInRange(data.settings, dates.filter((d) => d >= data.settings.planStartDate)),
+      weekTarget: studyTargetInRange(data.settings, dates.filter((d) => d >= data.settings.planStartDate), stats.index.dayAs),
       categories: studyByCategory(stats, dates.filter((d) => d <= today)),
       topicsDone: {
         java: topicsCompletedBetween(data.roadmaps.java, from, to),

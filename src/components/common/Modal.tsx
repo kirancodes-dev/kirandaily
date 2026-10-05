@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { IconButton } from './Button';
 
@@ -10,7 +11,10 @@ interface ModalProps {
   footer?: ReactNode;
 }
 
-/** Accessible dialog built on <dialog>: focus trap, Escape to close, bottom sheet on phones. */
+/**
+ * Accessible dialog built on <dialog>: focus trap, Escape to close, bottom sheet on phones.
+ * Rendered into <body>, so a parent's spacing (space-y-*) can't push the sheet off the bottom.
+ */
 export function Modal({ open, title, onClose, children, footer }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -26,8 +30,17 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The <dialog> unmounts before close() could hand focus back, so do it here.
+    return () => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   if (!open) return null;
-  return (
+  return createPortal(
     <dialog
       ref={ref}
       aria-labelledby={titleId}
@@ -56,7 +69,8 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
           </div>
         )}
       </div>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }
 
