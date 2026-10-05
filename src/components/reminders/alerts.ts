@@ -79,6 +79,9 @@ export async function requestNotificationPermission(): Promise<NotifyPermission>
   }
 }
 
+/** Notifications shown by this page, by tag (so they can be closed again). */
+const pageNotifications = new Map<string, Notification>();
+
 /**
  * Shows a system notification (only when permission is granted).
  * Uses the page's Notification first (a click brings the app to the front),
@@ -89,9 +92,13 @@ export async function showSystemNotification(title: string, body: string, tag: s
   const icon = `${import.meta.env.BASE_URL}pwa-192x192.png`;
   try {
     const n = new Notification(title, { body, tag, icon });
+    pageNotifications.set(tag, n);
     n.onclick = () => {
       window.focus();
       n.close();
+    };
+    n.onclose = () => {
+      if (pageNotifications.get(tag) === n) pageNotifications.delete(tag);
     };
     return true;
   } catch {
@@ -108,6 +115,21 @@ export async function showSystemNotification(title: string, body: string, tag: s
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Closes a notification that is no longer true (e.g. the task was ticked on another device). */
+export function closeSystemNotification(tag: string): void {
+  try {
+    pageNotifications.get(tag)?.close();
+    pageNotifications.delete(tag);
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    void navigator.serviceWorker.ready
+      .then((reg) => reg.getNotifications({ tag }))
+      .then((list) => list.forEach((n) => n.close()))
+      .catch(() => undefined);
+  } catch {
+    // Nothing to close.
   }
 }
 

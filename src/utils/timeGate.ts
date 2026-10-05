@@ -55,6 +55,20 @@ export function canMarkDone(task: Pick<Task, 'date' | 'startTime'>, now: Date, g
   return now.getTime() >= taskStart(task).getTime();
 }
 
+/**
+ * Keeps a tick honest after a task is moved or edited: a ticked task whose new
+ * slot hasn't started yet loses its tick (it can be ticked again once it starts).
+ * Returns the same object when nothing has to change.
+ */
+export function dropEarlyTick<T extends Pick<Task, 'date' | 'startTime' | 'completed' | 'skipped' | 'completedAt'>>(
+  task: T,
+  now: Date,
+  gateOn = true,
+): T {
+  if (!task.completed || task.skipped || canMarkDone(task, now, gateOn)) return task;
+  return { ...task, completed: false, completedAt: undefined };
+}
+
 /** Whole minutes until the task starts (rounded up), 0 once it has started. */
 export function timeUntilStart(task: Pick<Task, 'date' | 'startTime'>, now: Date): number {
   return Math.max(0, Math.ceil((taskStart(task).getTime() - now.getTime()) / 60_000));
@@ -105,21 +119,31 @@ export function availableFrom(task: Pick<Task, 'date' | 'startTime'>, now: Date)
   return `${dayLabel(task.date)}, ${formatTime12(task.startTime)}`;
 }
 
+/** "at 7:30 PM" (today), "tomorrow at 7:30 PM" or "on Tue, Oct 6 at 7:30 PM". */
+function whenLabel(task: Pick<Task, 'date' | 'startTime'>, now: Date): string {
+  const today = todayISO(now);
+  const time = formatTime12(task.startTime);
+  if (task.date === today) return `at ${time}`;
+  if (task.date === addDays(today, 1)) return `tomorrow at ${time}`;
+  return `on ${dayLabel(task.date)} at ${time}`;
+}
+
 /**
  * The alert shown when someone tries to tick a task too early, e.g.
  * "Not yet — Java starts at 7:30 PM" / "You can tick it once it starts (in 2 h 5 min).".
  */
 export function gateMessage(task: Pick<Task, 'title' | 'date' | 'startTime'>, now: Date): { title: string; body: string } {
-  const today = todayISO(now);
-  const time = formatTime12(task.startTime);
-  const when =
-    task.date === today
-      ? `starts at ${time}`
-      : task.date === addDays(today, 1)
-        ? `is tomorrow at ${time}`
-        : `is on ${dayLabel(task.date)} at ${time}`;
+  const when = whenLabel(task, now);
   return {
-    title: `Not yet — ${task.title} ${when}`,
+    title: `Not yet — ${task.title} ${task.date === todayISO(now) ? 'starts' : 'is'} ${when}`,
     body: `You can tick it once it starts (in ${formatWait(timeUntilStart(task, now))}).`,
+  };
+}
+
+/** The note shown when moving / editing a ticked task took its tick away (see dropEarlyTick). */
+export function tickRemovedMessage(task: Pick<Task, 'title' | 'date' | 'startTime'>, now: Date): { title: string; body: string } {
+  return {
+    title: `Tick removed — ${task.title} now starts ${whenLabel(task, now).replace(/^on /, '')}`,
+    body: 'A task can only be ticked once it starts. Tick it again then.',
   };
 }

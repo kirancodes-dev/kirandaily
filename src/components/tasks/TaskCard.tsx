@@ -64,9 +64,10 @@ export function TaskCard({ task, onToggle, onOpenActions }: TaskCardProps) {
         <input
           type="checkbox"
           className={`h-7 w-7 cursor-pointer appearance-none rounded-lg border-2 checked:border-emerald-600 checked:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:checked:bg-emerald-600 ${
+            // Slate-500 outlines keep ≥ 3:1 contrast (WCAG 1.4.11); locked = dashed, grey and a clock.
             locked
-              ? 'border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800'
-              : 'border-slate-400 bg-white dark:border-slate-500 dark:bg-slate-900'
+              ? 'border-dashed border-slate-500 bg-slate-100 dark:border-slate-500 dark:bg-slate-800'
+              : 'border-slate-500 bg-white dark:border-slate-500 dark:bg-slate-900'
           }`}
           checked={done}
           disabled={task.skipped}
@@ -74,7 +75,7 @@ export function TaskCard({ task, onToggle, onOpenActions }: TaskCardProps) {
           aria-label={`Mark ${task.title} ${done ? 'not done' : 'done'}${locked ? ` (available from ${from})` : ''}`}
         />
         {done && <Check size={18} strokeWidth={3} aria-hidden className="pointer-events-none absolute text-white" />}
-        {locked && <Clock size={14} strokeWidth={2.5} aria-hidden className="pointer-events-none absolute text-slate-400 dark:text-slate-500" />}
+        {locked && <Clock size={14} strokeWidth={2.5} aria-hidden className="pointer-events-none absolute text-slate-500 dark:text-slate-400" />}
       </label>
 
       <div className="min-w-0 flex-1 py-3">

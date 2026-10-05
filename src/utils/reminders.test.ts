@@ -10,9 +10,14 @@ import {
   overdueTasks,
   planReminders,
   pruneAlerted,
+  refreshDue,
   reminderKey,
   saveAlerted,
+  toNotices,
+  waitForSync,
+  withOvernight,
   type ReminderPlanInput,
+  type SyncView,
 } from './reminders';
 
 const at = (date: string, time: string, seconds = 0) => {
@@ -22,8 +27,10 @@ const at = (date: string, time: string, seconds = 0) => {
 };
 
 const DAY = '2026-10-05';
+const NEXT = '2026-10-06';
 /** The real Monday plan: Wake up 05:00 … Java 19:30–21:00, German 21:00–21:30, Revision 21:30–22:00, Sleep 22:00–05:00. */
 const monday = (): Task[] => tasksForDate(buildScheduleIndex(createDefaultData()), DAY);
+const tuesday = (): Task[] => tasksForDate(buildScheduleIndex(createDefaultData()), NEXT);
 const byTitle = (tasks: Task[], title: string) => tasks.find((t) => t.title === title)!;
 
 const plan = (over: Partial<ReminderPlanInput> & Pick<ReminderPlanInput, 'now'>) =>
@@ -108,6 +115,94 @@ describe('planReminders', () => {
     const p = plan({ now: at(DAY, '23:59'), lastCheck: at(DAY, '22:00', 30) });
     expect(p.due).toEqual([]);
   });
+
+  it('alerts a task again after it was moved to a later time the same day', () => {
+    const tasks = monday();
+    const java = byTitle(tasks, 'Java');
+    // 21:00: "Java ended" was alerted, then Java was moved to 21:30–23:00 (same id).
+    const alerted = new Set([reminderKey('starting', java), reminderKey('overdue', java)]);
+    const moved = tasks.map((t) => (t.id === java.id ? { ...t, startTime: '21:30', endTime: '23:00' } : t));
+    expect(reminderKey('starting', byTitle(moved, 'Java'))).not.toBe(reminderKey('starting', java));
+    const atStart = plan({ tasks: moved, alerted, now: at(DAY, '21:30', 10), lastCheck: at(DAY, '21:29', 50) });
+    expect(keysOf(atStart)).toEqual(['overdue:German', 'starting:Java', 'starting:Revision']);
+    const atEnd = plan({ tasks: moved, alerted, now: at(DAY, '23:00', 10), lastCheck: at(DAY, '22:59', 50) });
+    expect(keysOf(atEnd)).toEqual(['overdue:Java']);
+  });
+
+  it('keys include the slot', () => {
+    const java = byTitle(monday(), 'Java');
+    expect(reminderKey('starting', java)).toBe(`starting:${java.id}|2026-10-05T19:30`);
+    expect(reminderKey('overdue', java)).toBe(`overdue:${java.id}|2026-10-05T21:00`);
+    // The end of a task that crosses midnight is on the next day.
+    expect(reminderKey('overdue', byTitle(monday(), 'Sleep'))).toMatch(/\|2026-10-06T05:00$/);
+  });
+
+  it('works across midnight when given yesterday’s, today’s and tomorrow’s tasks', () => {
+    const late = { ...byTitle(monday(), 'Revision'), id: 'late', title: 'Late study', startTime: '23:00', endTime: '00:30' };
+    const early = { ...byTitle(tuesday(), 'Wake up'), id: 'early', title: 'Early call', startTime: '00:05', endTime: '00:20' };
+    const tasks = [...monday(), late, ...tuesday(), early];
+    // "Remind me 10 min before" a 00:05 task fires at 23:55 the day before.
+    const before = plan({ tasks, now: at(DAY, '23:55', 10), lastCheck: at(DAY, '23:54', 50), remindBeforeMinutes: 10 });
+    expect(keysOf(before)).toEqual(['starting:Early call']);
+    // A task running past midnight is alerted when it ends.
+    const ended = plan({ tasks, now: at(NEXT, '00:30', 10), lastCheck: at(NEXT, '00:29', 50) });
+    expect(keysOf(ended)).toEqual(['overdue:Late study']);
+    // Last night's sleep is overdue at 05:00 if it wasn't ticked.
+    const morning = plan({ tasks, now: at(NEXT, '05:00', 10), lastCheck: at(NEXT, '04:59', 50) });
+    expect(keysOf(morning)).toEqual(['overdue:Sleep', 'starting:Wake up']);
+    expect(morning.due[0].task.date).toBe(DAY);
+  });
+});
+
+describe('toNotices', () => {
+  it('shows up to two reminders one by one and collapses three or more', () => {
+    const p = plan({ now: at(DAY, '19:28'), collapseAt: 99 });
+    expect(p.due).toHaveLength(3);
+    expect(toNotices(p.due.slice(0, 2)).map((n) => n.type)).toEqual(['single', 'single']);
+    expect(toNotices(p.due)).toEqual([{ type: 'summary', reminders: p.due, overdue: 2, starting: 1 }]);
+    expect(toNotices([])).toEqual([]);
+  });
+});
+
+describe('refreshDue', () => {
+  const due = () => plan({ now: at(DAY, '21:00', 10), lastCheck: at(DAY, '20:59', 50) }).due; // overdue Java, starting German
+
+  it('keeps what is still open, with the latest task data', () => {
+    const tasks = monday().map((t) => (t.title === 'Java' ? { ...t, notes: 'chapter 4' } : t));
+    const fresh = refreshDue(due(), tasks, at(DAY, '21:05'));
+    expect(fresh.map((d) => `${d.kind}:${d.task.title}`)).toEqual(['overdue:Java', 'starting:German']);
+    expect(fresh[0].task.notes).toBe('chapter 4');
+  });
+
+  it('drops tasks ticked, skipped, deleted or moved in the meantime (e.g. on another device)', () => {
+    const ticked = monday().map((t) => (t.title === 'Java' ? { ...t, completed: true } : t.title === 'German' ? { ...t, skipped: true } : t));
+    expect(refreshDue(due(), ticked, at(DAY, '21:05'))).toEqual([]);
+    expect(refreshDue(due(), monday().filter((t) => t.title !== 'Java'), at(DAY, '21:05')).map((d) => d.task.title)).toEqual(['German']);
+    const moved = monday().map((t) => (t.title === 'Java' ? { ...t, endTime: '22:00' } : t));
+    expect(refreshDue(due(), moved, at(DAY, '21:05')).map((d) => d.task.title)).toEqual(['German']);
+  });
+
+  it('drops "starting" once the task has ended, things older than 2 hours and duplicates', () => {
+    expect(refreshDue(due(), monday(), at(DAY, '21:40')).map((d) => d.kind)).toEqual(['overdue']);
+    expect(refreshDue(due(), monday(), at(DAY, '23:00'))).toEqual([]);
+    expect(refreshDue([...due(), ...due()], monday(), at(DAY, '21:05'))).toHaveLength(2);
+  });
+});
+
+describe('waitForSync', () => {
+  const view = (over: Partial<SyncView>): SyncView => ({ configured: true, ready: true, signedIn: true, state: 'synced', ...over });
+
+  it('waits while signed-in data is still loading from the cloud', () => {
+    expect(waitForSync(view({ ready: false }))).toBe(true);
+    expect(waitForSync(view({ state: 'connecting' }))).toBe(true);
+    expect(waitForSync(view({ state: 'needs-choice' }))).toBe(true);
+  });
+
+  it('does not wait without cloud sync, when signed out, or once synced / offline', () => {
+    expect(waitForSync(view({ configured: false, ready: false }))).toBe(false);
+    expect(waitForSync(view({ signedIn: false, state: 'idle' }))).toBe(false);
+    for (const state of ['synced', 'saving', 'offline', 'error', 'idle'] as const) expect(waitForSync(view({ state }))).toBe(false);
+  });
 });
 
 describe('overdueTasks / currentTasks', () => {
@@ -122,6 +217,17 @@ describe('overdueTasks / currentTasks', () => {
     expect(currentTasks(monday(), at(DAY, '23:30')).map((t) => t.title)).toEqual(['Sleep']);
     const done = monday().map((t) => (t.title === 'Java' ? { ...t, completed: true } : t));
     expect(currentTasks(done, at(DAY, '20:00'))).toEqual([]);
+  });
+
+  it('withOvernight adds only yesterday’s tasks that run past midnight', () => {
+    const tasks = withOvernight(monday(), tuesday(), NEXT);
+    expect(tasks.filter((t) => t.date === DAY).map((t) => t.title)).toEqual(['Sleep']);
+    expect(tasks).toHaveLength(tuesday().length + 1);
+    // 01:00: last night's sleep is happening now; after 05:00 it is overdue if not ticked.
+    expect(currentTasks(tasks, at(NEXT, '01:00')).map((t) => `${t.title} ${t.date}`)).toEqual([`Sleep ${DAY}`]);
+    expect(overdueTasks(tasks, at(NEXT, '05:01')).map((t) => `${t.title} ${t.date}`)).toEqual([`Sleep ${DAY}`]);
+    const ticked = withOvernight(monday().map((t) => ({ ...t, completed: true })), tuesday(), NEXT);
+    expect(overdueTasks(ticked, at(NEXT, '05:01'))).toEqual([]);
   });
 });
 

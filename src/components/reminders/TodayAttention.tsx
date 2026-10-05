@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronUp, SkipForward, Timer } from 'lucide-react';
 import type { Task } from '../../types/task';
+import { useAppData } from '../../hooks/useAppData';
 import { useTasks } from '../../hooks/useTasks';
 import { useNow } from '../../hooks/useNow';
 import { useCategories } from '../../hooks/useCategories';
@@ -10,8 +11,9 @@ import { useToast } from '../../hooks/useToast';
 import { useTaskDialogs } from '../tasks/TaskDialogs';
 import { Button } from '../common/Button';
 import { ProgressBar } from '../common/Progress';
-import { formatMinutes, formatTime12 } from '../../utils/date';
-import { currentTasks, overdueTasks } from '../../utils/reminders';
+import { getDayTasks } from '../../utils/calculations';
+import { addDays, formatMinutes, formatTime12 } from '../../utils/date';
+import { currentTasks, overdueTasks, withOvernight } from '../../utils/reminders';
 import { minutesLeft, taskEnd, taskStart } from '../../utils/timeGate';
 
 /** Overdue rows shown before "Show all". */
@@ -22,15 +24,26 @@ const small =
 const plain =
   'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-700';
 
+interface OverdueRowProps {
+  task: Task;
+  now: Date;
+  /** Started yesterday (ran past midnight, e.g. last night's sleep). */
+  overnight: boolean;
+  onDone: () => void;
+  onMove: () => void;
+  onSkip: () => void;
+}
+
 /** One overdue task. Phones get compact icon buttons (labelled for screen readers), wider screens text too. */
-function OverdueRow({ task, now, onDone, onMove, onSkip }: { task: Task; now: Date; onDone: () => void; onMove: () => void; onSkip: () => void }) {
+function OverdueRow({ task, now, overnight, onDone, onMove, onSkip }: OverdueRowProps) {
   const ago = Math.max(1, Math.round((now.getTime() - taskEnd(task).getTime()) / 60_000));
   return (
     <li className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0 sm:gap-3">
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{task.title}</p>
-        <p className="truncate text-sm text-slate-600 dark:text-slate-400">
-          Ended <span className="hidden sm:inline">{formatTime12(task.endTime)} · </span>
+        <p className={`text-sm text-slate-600 dark:text-slate-400 ${overnight ? '' : 'truncate'}`}>
+          {overnight ? 'Last night · ended ' : 'Ended '}
+          <span className="hidden sm:inline">{formatTime12(task.endTime)} · </span>
           {formatMinutes(ago)} ago
         </p>
       </div>
@@ -59,17 +72,37 @@ function OverdueRow({ task, now, onDone, onMove, onSkip }: { task: Task; now: Da
 /**
  * Today only: tasks that ended without a tick ("Needs attention", with quick
  * Done / Move / Skip) and the task happening right now with its time left.
+ * Last night's tasks that ran past midnight (sleep) count too.
  * Renders nothing when there is nothing to show.
  */
 export function TodayAttention({ date, today }: { date: string; today: string }) {
   const now = useNow();
-  const { tasks, skip } = useTasks(today);
+  const { stats } = useAppData();
+  const { tasks: todays, skip } = useTasks(today);
+  const tasks = useMemo(() => withOvernight(getDayTasks(stats, addDays(today, -1)), todays, today), [stats, todays, today]);
   const dialogs = useTaskDialogs();
   const { get } = useCategories();
   const timer = useStudyTimer();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
+
+  // Keyboard focus after "Mark done" / "Skip" removed a row: the next row, else the next thing on the card, else the page.
+  const listRef = useRef<HTMLUListElement>(null);
+  const nowRef = useRef<HTMLDivElement>(null);
+  const refocus = useRef<number | null>(null);
+  useEffect(() => {
+    const index = refocus.current;
+    if (index === null) return;
+    refocus.current = null;
+    const rows = listRef.current?.querySelectorAll('li');
+    const target =
+      (rows?.length ? rows[Math.min(index, rows.length - 1)].querySelector('button') : null) ??
+      nowRef.current?.querySelector('button') ??
+      nowRef.current?.querySelector<HTMLElement>('[tabindex="-1"]') ??
+      document.getElementById('main');
+    target?.focus();
+  });
 
   if (date !== today) return dialogs.element;
 
@@ -81,7 +114,13 @@ export function TodayAttention({ date, today }: { date: string; today: string })
   const shown = expanded ? overdue : overdue.slice(0, COLLAPSED);
   const timerBusy = timer.state.status !== 'idle';
 
-  const onSkip = (task: Task) => {
+  const onDone = (task: Task, index: number) => {
+    refocus.current = index;
+    dialogs.toggle(task);
+  };
+
+  const onSkip = (task: Task, index: number) => {
+    refocus.current = index;
     skip(task, true);
     toast({
       id: `skip-${task.id}`,
@@ -100,13 +139,13 @@ export function TodayAttention({ date, today }: { date: string; today: string })
     const left = minutesLeft(current, now);
     const isStudy = get(current.category).isStudy;
     nowBlock = (
-      <div className="flex flex-wrap items-center gap-3">
+      <div ref={nowRef} className="flex flex-wrap items-center gap-3">
         <span className="relative flex h-3 w-3 shrink-0" aria-hidden>
           <span className="absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-60 motion-safe:animate-ping" />
           <span className="relative inline-flex h-3 w-3 rounded-full bg-brand-600 dark:bg-brand-400" />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 id="now-heading" className="text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+          <h2 id="now-heading" tabIndex={-1} className="text-xs font-semibold uppercase tracking-wide text-brand-700 outline-none dark:text-brand-300">
             Happening now
           </h2>
           <p className="truncate text-base font-semibold">{current.title}</p>
@@ -156,15 +195,16 @@ export function TodayAttention({ date, today }: { date: string; today: string })
                 <p className="text-sm text-slate-600 dark:text-slate-400">Ended without a tick. Did them? Mark them done — if not, move or skip.</p>
               </div>
             </div>
-            <ul aria-label="Tasks that need attention" className="divide-y divide-slate-100 dark:divide-slate-800">
-              {shown.map((t) => (
+            <ul ref={listRef} aria-label="Tasks that need attention" className="divide-y divide-slate-100 dark:divide-slate-800">
+              {shown.map((t, i) => (
                 <OverdueRow
                   key={t.id}
                   task={t}
                   now={now}
-                  onDone={() => dialogs.toggle(t)}
+                  overnight={t.date !== today}
+                  onDone={() => onDone(t, i)}
                   onMove={() => dialogs.openMove(t)}
-                  onSkip={() => onSkip(t)}
+                  onSkip={() => onSkip(t, i)}
                 />
               ))}
             </ul>

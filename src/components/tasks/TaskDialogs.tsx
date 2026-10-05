@@ -10,7 +10,7 @@ import { useTasks } from '../../hooks/useTasks';
 import { useExtras } from '../../hooks/useExtras';
 import { useToast } from '../../hooks/useToast';
 import { formatLongDate, formatTime12 } from '../../utils/date';
-import { availableFrom, canMarkDone, gateMessage } from '../../utils/timeGate';
+import { availableFrom, canMarkDone, dropEarlyTick, gateMessage, tickRemovedMessage } from '../../utils/timeGate';
 
 type DialogState =
   | { kind: 'none' }
@@ -58,6 +58,27 @@ export function useTaskDialogs() {
   const ops = useTasks();
   const toggle = useTaskToggle();
   const { prefs } = useExtras();
+  const { toast } = useToast();
+
+  /**
+   * Time-lock for moves and edits: a ticked task moved / edited to a slot that
+   * hasn't started yet loses its tick (no green tick ahead of time — and no
+   * "move it to now, tick, move it back" trick). Returns the task to store.
+   */
+  const honest = (after: Task): Task => {
+    const now = new Date();
+    const next = dropEarlyTick(after, now, prefs.timeGate);
+    if (next !== after) {
+      const msg = tickRemovedMessage(next, now);
+      toast({ id: `tick-removed-${next.id}`, tone: 'info', title: msg.title, body: msg.body, duration: 7000 });
+    }
+    return next;
+  };
+
+  const move = (task: Task, date: string, startTime: string, endTime: string) => {
+    const next = honest({ ...task, date, startTime, endTime });
+    ops.move({ ...task, completed: next.completed, completedAt: next.completedAt }, date, startTime, endTime);
+  };
 
   const handleSubmit = (task: Task | null, v: TaskFormValues) => {
     const rec = toRecurrence(v);
@@ -88,6 +109,9 @@ export function useTaskDialogs() {
         });
       } else ops.add(base);
     } else if (task.templateId && v.scope === 'series') {
+      // The day's own copy follows the series' new times: untick it first if they haven't started.
+      const day = honest({ ...task, title: v.title, startTime: v.startTime, endTime: v.endTime });
+      if (day.completed !== task.completed) ops.save({ ...task, completed: false, completedAt: undefined });
       ops.updateSeries(task, {
         title: v.title,
         category: v.category,
@@ -98,7 +122,7 @@ export function useTaskDialogs() {
         ...(rec ? { recurrence: rec } : {}),
       });
     } else {
-      const updated: Task = {
+      const updated: Task = honest({
         ...task,
         title: v.title,
         date: v.date,
@@ -108,7 +132,7 @@ export function useTaskDialogs() {
         priority: v.priority,
         notes: v.notes,
         subjectId: v.category === 'college' ? v.subjectId || undefined : undefined,
-      };
+      });
       if (!task.templateId && rec) ops.makeRecurring(updated, rec);
       else ops.save(updated);
     }
@@ -194,7 +218,7 @@ export function useTaskDialogs() {
       />
     );
   } else if (state.kind === 'move') {
-    element = <MoveDialog task={state.task} onClose={close} onMove={(d, s, e) => (ops.move(state.task, d, s, e), close())} />;
+    element = <MoveDialog task={state.task} onClose={close} onMove={(d, s, e) => (move(state.task, d, s, e), close())} />;
   } else if (state.kind === 'delete') {
     const t = state.task;
     const tpl = ops.templateOf(t);

@@ -4,13 +4,14 @@
  * system notifications, app badge) lives in components/reminders.
  */
 import type { Task } from '../types/task';
-import { formatTime12 } from './date';
+import type { SyncState } from '../sync/engine';
+import { formatTime12, todayISO } from './date';
 import { isHappening, minutesLeft, taskEnd, taskStart } from './timeGate';
 
 export type ReminderKind = 'starting' | 'overdue';
 
 export interface DueReminder {
-  /** Unique per task and kind, e.g. "starting:tpl-java@2026-10-05". */
+  /** Unique per task, kind and time slot, e.g. "starting:tpl-java@2026-10-05|2026-10-05T19:30". */
   key: string;
   kind: ReminderKind;
   task: Task;
@@ -23,12 +24,12 @@ export type ReminderNotice =
   | { type: 'summary'; reminders: DueReminder[]; overdue: number; starting: number };
 
 export interface ReminderPlanInput {
-  /** Today's tasks. */
+  /** The tasks to look at (the engine passes yesterday's, today's and tomorrow's: times decide what fires). */
   tasks: Task[];
   now: Date;
   /** The previous check. Only things that became due after it fire (null = first check). */
   lastCheck: Date | null;
-  /** Keys already alerted today (from this or another tab / an earlier visit). */
+  /** Keys already alerted (from this or another tab / an earlier visit). */
   alerted: ReadonlySet<string>;
   /** "Starting" alerts fire this many minutes before the start (0 = at the start). */
   remindBeforeMinutes: number;
@@ -48,11 +49,33 @@ export interface ReminderPlan {
 export const REMINDER_MAX_AGE_MINUTES = 120;
 export const REMINDER_COLLAPSE_AT = 3;
 
-export function reminderKey(kind: ReminderKind, task: Pick<Task, 'id'>): string {
-  return `${kind}:${task.id}`;
+/** "2026-10-05T19:30" (local time). */
+function stamp(d: Date): string {
+  return `${todayISO(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Unique per task, kind and time slot: "starting" uses the start, "overdue"
+ * the end. A task moved to another time gets new keys, so its new start and
+ * end are alerted again.
+ */
+export function reminderKey(kind: ReminderKind, task: Pick<Task, 'id' | 'date' | 'startTime' | 'endTime'>): string {
+  return `${kind}:${task.id}|${stamp(kind === 'starting' ? taskStart(task) : taskEnd(task))}`;
 }
 
 const open = (t: Task) => !t.completed && !t.skipped;
+const byTime = (a: DueReminder, b: DueReminder) =>
+  a.at.getTime() - b.at.getTime() || (a.kind === b.kind ? 0 : a.kind === 'overdue' ? -1 : 1);
+
+/** One notice per reminder, or a single summary when there are many (e.g. the app was closed for hours). */
+export function toNotices(due: DueReminder[], collapseAt = REMINDER_COLLAPSE_AT): ReminderNotice[] {
+  if (due.length === 0) return [];
+  if (due.length >= collapseAt) {
+    const overdue = due.filter((d) => d.kind === 'overdue').length;
+    return [{ type: 'summary', reminders: due, overdue, starting: due.length - overdue }];
+  }
+  return due.map((reminder) => ({ type: 'single', reminder }));
+}
 
 /** Decide which reminders fire at `now`. */
 export function planReminders(input: ReminderPlanInput): ReminderPlan {
@@ -80,14 +103,66 @@ export function planReminders(input: ReminderPlanInput): ReminderPlan {
       due.push({ key: overKey, kind: 'overdue', task, at: new Date(end) });
     }
   }
-  due.sort((a, b) => a.at.getTime() - b.at.getTime() || (a.kind === b.kind ? 0 : a.kind === 'overdue' ? -1 : 1));
+  due.sort(byTime);
+  return { due, notices: toNotices(due, collapseAt) };
+}
 
-  if (due.length === 0) return { due, notices: [] };
-  if (due.length >= collapseAt) {
-    const overdue = due.filter((d) => d.kind === 'overdue').length;
-    return { due, notices: [{ type: 'summary', reminders: due, overdue, starting: due.length - overdue }] };
+/**
+ * Re-checks reminders against the latest data right before they are shown
+ * (after a while in the background, or once cloud sync brought changes):
+ * drops tasks that were ticked, skipped, deleted or moved since, "starting"
+ * reminders of tasks that already ended (the "overdue" one covers them),
+ * duplicates and anything too old.
+ */
+export function refreshDue(
+  due: DueReminder[],
+  tasks: Task[],
+  now: Date,
+  maxAgeMinutes = REMINDER_MAX_AGE_MINUTES,
+): DueReminder[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const seen = new Set<string>();
+  const out: DueReminder[] = [];
+  for (const d of due) {
+    const task = byId.get(d.task.id);
+    if (!task || !open(task) || seen.has(d.key) || reminderKey(d.kind, task) !== d.key) continue;
+    if (d.kind === 'starting' && now.getTime() >= taskEnd(task).getTime()) continue;
+    if (now.getTime() - d.at.getTime() >= maxAgeMinutes * 60_000) continue;
+    seen.add(d.key);
+    out.push({ ...d, task });
   }
-  return { due, notices: due.map((reminder) => ({ type: 'single', reminder })) };
+  return out.sort(byTime);
+}
+
+/**
+ * The tasks "today" is about: today's plus yesterday's that run past midnight
+ * (last night's sleep, a late study block), so after midnight they can still
+ * be shown as happening now or as overdue.
+ */
+export function withOvernight(yesterday: Task[], today: Task[], todayDate: string): Task[] {
+  const midnight = taskStart({ date: todayDate, startTime: '00:00' }).getTime();
+  return [...yesterday.filter((t) => taskEnd(t).getTime() >= midnight), ...today];
+}
+
+/** What reminders need to know about cloud sync. */
+export interface SyncView {
+  /** Cloud sync is set up for this build. */
+  configured: boolean;
+  /** Firebase loaded and the sign-in state is known. */
+  ready: boolean;
+  signedIn: boolean;
+  state: SyncState;
+}
+
+/**
+ * True while the other devices' changes may still be on their way (app start
+ * with cloud sync): reminders wait, so a task ticked on the Mac isn't reported
+ * as "did you do it?" on the iPhone.
+ */
+export function waitForSync(sync: SyncView): boolean {
+  if (!sync.configured) return false;
+  if (!sync.ready) return true;
+  return sync.signedIn && (sync.state === 'connecting' || sync.state === 'needs-choice');
 }
 
 /** Tasks that ended without being ticked or skipped (oldest first). */

@@ -3,6 +3,7 @@ import type { Task } from '../types/task';
 import {
   availableFrom,
   canMarkDone,
+  dropEarlyTick,
   formatWait,
   gateMessage,
   isHappening,
@@ -10,6 +11,7 @@ import {
   minutesLeft,
   taskEnd,
   taskStart,
+  tickRemovedMessage,
   timeUntilStart,
 } from './timeGate';
 
@@ -94,6 +96,47 @@ describe('canMarkDone', () => {
   });
 });
 
+describe('dropEarlyTick (moving / editing a ticked task)', () => {
+  const ticked = task({ completed: true, completedAt: at('2026-10-05', '20:00').toISOString() });
+  const now = at('2026-10-05', '20:00');
+
+  it('removes the tick when the task moves to a later day', () => {
+    const moved = dropEarlyTick({ ...ticked, date: '2026-10-06' }, now);
+    expect(moved.completed).toBe(false);
+    expect(moved.completedAt).toBeUndefined();
+    // Everything else stays.
+    expect(moved).toMatchObject({ id: 't1', date: '2026-10-06', title: 'Java', startTime: '19:30', skipped: false });
+  });
+
+  it('removes the tick when the task moves later the same day', () => {
+    expect(dropEarlyTick({ ...ticked, startTime: '21:30', endTime: '23:00' }, now).completed).toBe(false);
+    // Exactly at the new start the tick may stay.
+    expect(dropEarlyTick({ ...ticked, startTime: '20:00' }, now).completed).toBe(true);
+  });
+
+  it('keeps the tick when the new slot has already started (earlier today, or a past day)', () => {
+    const earlier = { ...ticked, startTime: '18:00', endTime: '19:00' };
+    expect(dropEarlyTick(earlier, now)).toBe(earlier);
+    const past = { ...ticked, date: '2026-10-04', startTime: '23:00' };
+    expect(dropEarlyTick(past, now)).toBe(past);
+  });
+
+  it('handles sleep: ticked from 22:00 on its own date, not when moved to tomorrow night', () => {
+    const night = { ...sleep, completed: true, completedAt: at('2026-10-05', '22:05').toISOString() };
+    expect(dropEarlyTick(night, at('2026-10-06', '01:00')).completed).toBe(true);
+    expect(dropEarlyTick({ ...night, date: '2026-10-06' }, at('2026-10-06', '01:00')).completed).toBe(false);
+  });
+
+  it('leaves open and skipped tasks alone, and does nothing with the time-lock off', () => {
+    const open = task({ date: '2026-10-06' });
+    expect(dropEarlyTick(open, now)).toBe(open);
+    const skipped = task({ date: '2026-10-06', skipped: true });
+    expect(dropEarlyTick(skipped, now)).toBe(skipped);
+    const future = { ...ticked, date: '2026-10-06' };
+    expect(dropEarlyTick(future, now, false)).toBe(future);
+  });
+});
+
 describe('timeUntilStart', () => {
   it('counts whole minutes, rounding up, and stops at 0', () => {
     expect(timeUntilStart(task(), at('2026-10-05', '17:25'))).toBe(125);
@@ -166,6 +209,19 @@ describe('messages', () => {
     });
     expect(gateMessage(task({ date: '2026-10-06' }), at('2026-10-05', '19:30')).title).toBe('Not yet — Java is tomorrow at 7:30 PM');
     expect(gateMessage(task({ date: '2026-10-08' }), at('2026-10-05', '19:30')).title).toBe('Not yet — Java is on Thu, Oct 8 at 7:30 PM');
+  });
+
+  it('says when a tick was removed after a move', () => {
+    expect(tickRemovedMessage(task({ startTime: '21:30' }), at('2026-10-05', '20:00'))).toEqual({
+      title: 'Tick removed — Java now starts at 9:30 PM',
+      body: 'A task can only be ticked once it starts. Tick it again then.',
+    });
+    expect(tickRemovedMessage(task({ date: '2026-10-06' }), at('2026-10-05', '20:00')).title).toBe(
+      'Tick removed — Java now starts tomorrow at 7:30 PM',
+    );
+    expect(tickRemovedMessage(task({ date: '2026-10-08' }), at('2026-10-05', '20:00')).title).toBe(
+      'Tick removed — Java now starts Thu, Oct 8 at 7:30 PM',
+    );
   });
 
   it('labels the time a task becomes available', () => {

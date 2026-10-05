@@ -11,6 +11,12 @@ async function open(page: Page, hash: string, time: Date) {
   await page.goto(`/#${hash}`);
 }
 
+/** Closes every toast (on phones they sit on top of the page). */
+async function closeToasts(page: Page) {
+  const dismiss = page.getByRole('button', { name: 'Dismiss' });
+  while ((await dismiss.count()) > 0) await dismiss.first().click({ timeout: 2_000 }).catch(() => undefined);
+}
+
 /** Opening the app catches up on the last two hours with one summary alert; close it so it can't cover anything. */
 async function dismissSummary(page: Page) {
   const summary = page.getByRole('alert').filter({ hasText: 'tasks are waiting' });
@@ -56,7 +62,8 @@ test('the action sheet (used by the week grid) is time-locked too', async ({ pag
 
   await page.clock.fastForward('31:00');
   await block.click();
-  await page.getByRole('button', { name: 'Mark done', exact: true }).click();
+  // (A "Dinner ended" reminder with its own "Mark done" may be showing too.)
+  await page.getByRole('dialog', { name: 'Java' }).getByRole('button', { name: 'Mark done', exact: true }).click();
   await expect(block).toHaveAccessibleName(/completed$/);
 });
 
@@ -241,6 +248,10 @@ test('in the background a reminder becomes a system notification and the app bad
   // Badge = tasks that ended without a tick today (8 at 19:30).
   const badges = () => page.evaluate(() => (window as unknown as { __badges: number[] }).__badges);
   await expect.poll(badges).toEqual([7, 8]);
+  // While another window is in front, the alerts stay until you're back (they don't fade after 12 s).
+  await page.clock.runFor(20_000);
+  await expect(page.getByRole('status').filter({ hasText: 'Java starts now' })).toBeVisible();
+  await closeToasts(page);
   // Ticking updates the badge right away.
   await page.getByRole('checkbox', { name: 'Mark Dinner done' }).check();
   await expect.poll(badges).toEqual([7, 8, 7]);
@@ -261,4 +272,155 @@ test('with the time-lock off a future task can be ticked', async ({ page }) => {
   await expect(page.getByText('Tuesday, October 6, 2026')).toBeVisible();
   await page.getByRole('checkbox', { name: 'Mark German done' }).check();
   await expect(page.getByRole('checkbox', { name: 'Mark German not done' })).toBeChecked();
+});
+
+/* ───────────── review fixes ───────────── */
+
+test('moving or editing a ticked task to a time that hasn’t started takes the tick away', async ({ page }) => {
+  await open(page, '', at('20:00'));
+  await dismissSummary(page);
+
+  // Move to tomorrow: no green tick on a day that hasn't happened yet.
+  await page.getByRole('checkbox', { name: 'Mark Java done' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Mark Java not done' })).toBeChecked();
+  await page.getByRole('button', { name: 'Options for Java' }).click();
+  await page.getByRole('button', { name: 'Move / reschedule' }).click();
+  await page.getByRole('button', { name: 'Tomorrow, same time' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Tick removed — Java now starts tomorrow at 7:30 PM' })).toBeVisible();
+  await closeToasts(page);
+  await page.getByRole('button', { name: 'Next day' }).click();
+  await expect(page.getByText('Tuesday, October 6, 2026')).toBeVisible();
+  const moved = page.getByRole('checkbox', { name: 'Mark Java done (available from Tue, Oct 6, 7:30 PM)' });
+  await expect(moved).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: /^Mark Java not done/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Previous day' }).click();
+  await expect(page.getByText('Monday, October 5, 2026')).toBeVisible();
+
+  // Edit this day only to a later time.
+  await page.getByRole('checkbox', { name: 'Mark Dinner done' }).check();
+  await page.getByRole('button', { name: 'Options for Dinner' }).click();
+  await page.getByRole('dialog', { name: 'Dinner' }).getByRole('button', { name: 'Edit' }).click();
+  await page.getByLabel('Start', { exact: true }).fill('20:30');
+  await page.getByLabel('End', { exact: true }).fill('21:00');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Tick removed — Dinner now starts at 8:30 PM' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Mark Dinner done (available from 8:30 PM)' })).not.toBeChecked();
+  await closeToasts(page);
+
+  // Edit the whole series to a later time: today's copy loses its tick too.
+  await page.getByRole('checkbox', { name: 'Mark College subject done' }).check();
+  await page.getByRole('button', { name: 'Options for College subject' }).click();
+  await page.getByRole('dialog', { name: 'College subject' }).getByRole('button', { name: 'Edit' }).click();
+  await page.getByLabel('This and following days').check();
+  await page.getByLabel('Start', { exact: true }).fill('21:30');
+  await page.getByLabel('End', { exact: true }).fill('22:00');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Tick removed — College subject now starts at 9:30 PM' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Mark College subject done (available from 9:30 PM)' })).not.toBeChecked();
+  await closeToasts(page);
+
+  // Moving a ticked task to a slot that has already started keeps the tick.
+  await page.getByRole('checkbox', { name: 'Mark Gym done' }).check();
+  await page.getByRole('button', { name: 'Options for Gym' }).click();
+  await page.getByRole('button', { name: 'Move / reschedule' }).click();
+  await page.getByRole('button', { name: '1 hour later' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Mark Gym not done' })).toBeChecked();
+});
+
+test('a task moved to a later time is reminded again at its new start and end', async ({ page }) => {
+  await open(page, '', at('20:58'));
+  await dismissSummary(page);
+  await page.clock.fastForward('02:30'); // ~21:00:30
+  await expect(page.getByRole('alert').filter({ hasText: 'Java ended — did you do it?' })).toBeVisible();
+  await closeToasts(page);
+
+  await page.getByRole('button', { name: 'Options for Java' }).click();
+  await page.getByRole('button', { name: 'Move / reschedule' }).click();
+  await page.getByLabel('Start', { exact: true }).fill('21:40'); // 21:40–23:10
+  await page.getByRole('dialog', { name: 'Move “Java”' }).getByRole('button', { name: 'Move', exact: true }).click();
+
+  // (Jumps fire the 20 s check once each; small hops keep alerts from being collapsed into a summary.)
+  await page.clock.fastForward('34:00'); // ~21:34:40: German ended, Revision started
+  await page.clock.fastForward('06:00'); // ~21:40:40
+  await expect(page.getByRole('status').filter({ hasText: 'Java starts now' })).toBeVisible();
+
+  await page.clock.fastForward('21:00'); // ~22:01:40: Revision ended, Sleep started
+  await page.clock.fastForward('01:09:00'); // ~23:10:40
+  const ended = page.getByRole('alert').filter({ hasText: 'Java ended — did you do it?' });
+  await expect(ended).toBeVisible();
+  await expect(ended).toContainText('It ended at 11:10 PM');
+});
+
+/** Pretends the user switched to another tab / app (or back). */
+async function setHidden(page: Page, hidden: boolean) {
+  await page.evaluate((h) => {
+    Object.defineProperty(document, 'visibilityState', { value: h ? 'hidden' : 'visible', configurable: true });
+    Object.defineProperty(document, 'hidden', { value: h, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+}
+
+test('a reminder that comes due while the planner is hidden is shown when you come back', async ({ page }) => {
+  await open(page, '', at('19:29'));
+  await dismissSummary(page);
+  await setHidden(page, true);
+  await page.clock.fastForward('01:30'); // ~19:30:30: Java starts, Dinner ends — nobody is looking
+  await page.clock.runFor('05:00');
+  await expect(page.getByText(/Java start/)).toHaveCount(0);
+  await expect(page.getByText('Dinner ended — did you do it?')).toHaveCount(0);
+
+  await setHidden(page, false);
+  await expect(page.getByRole('status').filter({ hasText: /Java started \d+ min ago/ })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Dinner ended — did you do it?' })).toBeVisible();
+  const alerted = await page.evaluate(() => JSON.parse(localStorage.getItem('kiran-planner:ui:alerted:2026-10-05') ?? '[]') as string[]);
+  expect(alerted.filter((k) => k.startsWith('starting:') && k.endsWith('T19:30'))).toHaveLength(1);
+});
+
+test('an alert closes itself once its task is ticked (here or synced from another device)', async ({ page }) => {
+  await open(page, '', at('20:59'));
+  await dismissSummary(page);
+  await page.clock.fastForward('01:30'); // ~21:00:30
+  const overdue = page.getByRole('alert').filter({ hasText: 'Java ended — did you do it?' });
+  await expect(overdue).toBeVisible();
+  // Keyboard tick, so the toast can't be in the way.
+  await page.getByRole('checkbox', { name: 'Mark Java done' }).focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('checkbox', { name: 'Mark Java not done' })).toBeChecked();
+  await expect(overdue).toHaveCount(0);
+});
+
+test('after midnight, last night’s sleep is happening now, then alerted and listed if it wasn’t ticked', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-06T01:00:00+05:30') });
+  await page.goto('/#/');
+  await expect(page.getByText('Tuesday, October 6, 2026')).toBeVisible();
+  const now = page.getByRole('region', { name: 'Happening now' });
+  await expect(now).toContainText('Sleep');
+  await expect(now).toContainText('4h left · until 5:00 AM');
+  await expect(now.getByRole('button', { name: /timer/ })).toHaveCount(0);
+
+  await page.clock.fastForward('03:58:00'); // 04:58
+  await page.clock.fastForward('02:30'); // ~05:00:30
+  await expect(page.getByRole('alert').filter({ hasText: 'Sleep ended — did you do it?' })).toBeVisible();
+  const card = page.getByRole('region', { name: /^Needs attention/ });
+  const row = card.getByRole('listitem').filter({ hasText: 'Sleep' });
+  await expect(row).toContainText(isMobile(page) ? /Last night · ended \d+m ago/ : /Last night · ended 5:00 AM · \d+m ago/, { useInnerText: true });
+  await closeToasts(page);
+  await card.getByRole('button', { name: 'Mark Sleep done' }).click();
+  await expect(card.getByRole('listitem').filter({ hasText: 'Sleep' })).toHaveCount(0);
+  await closeToasts(page);
+  await page.getByRole('button', { name: 'Previous day' }).click();
+  await expect(page.getByText('Monday, October 5, 2026')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Mark Sleep not done' })).toBeChecked();
+});
+
+test('keyboard focus moves to the next task after Mark done / Skip in Needs attention', async ({ page }) => {
+  await open(page, '', at('19:45'));
+  await dismissSummary(page);
+  const card = page.getByRole('region', { name: /^Needs attention/ });
+  await card.getByRole('button', { name: 'Mark Dinner done' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(card.getByRole('button', { name: 'Mark College subject done' })).toBeFocused();
+  await card.getByRole('button', { name: 'Skip College subject' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(card.getByRole('button', { name: 'Mark Travel + rest done' })).toBeFocused();
 });
