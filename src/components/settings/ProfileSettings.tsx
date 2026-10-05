@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 import { useAppData } from '../../hooks/useAppData';
+import { Avatar } from '../profile/Avatar';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { TextField } from '../common/Fields';
@@ -31,6 +34,17 @@ export function ProfileSettings() {
           Saved.
         </p>
       )}
+      <Link
+        to="/profile"
+        className="mt-3 flex min-h-touch items-center gap-3 rounded-xl px-2 py-2 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:ring-slate-700 dark:hover:bg-slate-800"
+      >
+        <Avatar size={36} />
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">Edit full profile</span>
+          <span className="block truncate text-sm text-slate-600 dark:text-slate-400">Photo, bio, links, level and badges</span>
+        </span>
+        <ChevronRight size={20} aria-hidden className="shrink-0 text-slate-400" />
+      </Link>
       <fieldset className="mt-4">
         <legend className="text-sm font-medium">Theme</legend>
         <div className="mt-1 grid grid-cols-3 gap-2">
