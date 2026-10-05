@@ -6,6 +6,7 @@ import { monthDates } from '../../utils/date';
 import { CHART_COLORS } from '../../utils/categoryStyles';
 import { ChartCard, DonutChart, SimpleBarChart, SimpleLineChart } from '../charts/Charts';
 import { StreaksPanel } from './StreaksPanel';
+import { ActivityHeatmap } from '../charts/ActivityHeatmap';
 import { Card } from '../common/Card';
 import { ProgressBar } from '../common/Progress';
 import { roadmapProgress } from '../../utils/calculations';
@@ -41,6 +42,8 @@ export function ProgressOverview({ today }: { today: string }) {
   return (
     <div className="space-y-4">
       <StreaksPanel today={today} />
+
+      <ActivityHeatmap today={today} />
 
       <Card title="Overall progress">
         <div className="grid gap-3 sm:grid-cols-2">

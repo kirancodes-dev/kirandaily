@@ -1,21 +1,23 @@
 import { PageHeader } from '../components/common/Feedback';
-import { Avatar } from '../components/profile/Avatar';
 import { CodingProfiles } from '../components/integrations/CodingProfiles';
-import { useAppData } from '../hooks/useAppData';
+import { ProfileHeader } from '../components/profile/ProfileHeader';
+import { ProfileStats } from '../components/profile/ProfileStats';
+import { BadgesCard } from '../components/profile/BadgesCard';
+import { useActivity } from '../components/profile/useActivity';
+import { ActivityHeatmap } from '../components/charts/ActivityHeatmap';
+import { useToday } from '../hooks/useToday';
 
-/** Feature: profile. Replaced by the profile feature (must keep <CodingProfiles />). */
+/** Profile: who you are, your level, your year at a glance and your badges. */
 export default function Profile() {
-  const { data } = useAppData();
+  const today = useToday();
+  const activity = useActivity(today);
   return (
     <div className="space-y-4">
-      <PageHeader title="Profile" />
-      <div className="flex items-center gap-4">
-        <Avatar size={72} />
-        <div>
-          <p className="text-xl font-semibold">{data.profile.name}</p>
-          <p className="text-slate-600 dark:text-slate-400">{data.profileExtra.headline}</p>
-        </div>
-      </div>
+      <PageHeader title="Profile" subtitle="Your details, level, activity and badges." />
+      <ProfileHeader />
+      <ProfileStats activity={activity} />
+      <ActivityHeatmap today={today} />
+      <BadgesCard badges={activity.badges} />
       <CodingProfiles />
     </div>
   );
