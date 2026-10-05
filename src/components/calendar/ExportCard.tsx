@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { BellRing, CalendarArrowDown, ChevronDown, Download, Globe, Laptop, Repeat, Smartphone, Star, type LucideIcon } from 'lucide-react';
+import { BellRing, CalendarArrowDown, ChevronDown, Download, Globe, GraduationCap, Heart, Laptop, Repeat, Smartphone, Star, TreePalm, type LucideIcon } from 'lucide-react';
 import { useAppData } from '../../hooks/useAppData';
 import { useToast } from '../../hooks/useToast';
 import { formatShortDate } from '../../utils/date';
@@ -66,6 +66,21 @@ export function ExportCard({ today }: { today: string }) {
             <input type="checkbox" className="h-5 w-5 shrink-0" checked={onlyImportant} onChange={(e) => setOnlyImportant(e.target.checked)} />
             Only starred dates
           </label>
+          <ul className="mt-2 flex flex-wrap gap-1.5 text-sm" aria-label="What the file contains">
+            {[
+              { n: datesToExport.filter((e) => e.kind === 'holiday').length, label: 'holidays', icon: TreePalm },
+              { n: datesToExport.filter((e) => e.kind === 'test' || e.kind === 'exam').length, label: 'tests & exams', icon: GraduationCap },
+              { n: datesToExport.filter((e) => e.important).length, label: 'starred (with reminder)', icon: Star },
+              { n: datesToExport.filter((e) => e.source !== 'semester').length, label: 'added by you', icon: Heart },
+            ]
+              .filter((x) => x.n > 0)
+              .map(({ n, label, icon: Icon }) => (
+                <li key={label} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  <Icon size={14} aria-hidden />
+                  {n} {label}
+                </li>
+              ))}
+          </ul>
           <div className="mt-auto pt-3">
             <Button variant="primary" block icon={<Download size={18} aria-hidden />} onClick={exportDates} disabled={datesToExport.length === 0}>
               Download {datesToExport.length} dates (.ics)
@@ -102,15 +117,17 @@ export function ExportCard({ today }: { today: string }) {
               { value: 'none', label: 'No alerts' },
             ]}
           />
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            {blocks.length} repeating {blocks.length === 1 ? 'block' : 'blocks'}, e.g. {[...new Set(blocks.map((b) => b.title))].slice(0, 4).join(', ')}.
-          </p>
           {canStop && (
             <label className="mt-2 flex min-h-touch items-center gap-3">
               <input type="checkbox" className="h-5 w-5 shrink-0" checked={stopAtSemesterEnd} onChange={(e) => setStopAtSemesterEnd(e.target.checked)} />
               Stop repeating after the semester ({formatShortDate(semesterEnd)})
             </label>
           )}
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            {blocks.length > 0
+              ? `${blocks.length} repeating ${blocks.length === 1 ? 'block' : 'blocks'}: ${[...new Set(blocks.map((b) => b.title))].slice(0, 4).join(', ')}${blocks.length > 4 ? '…' : ''}`
+              : 'No repeating timetable from today on.'}
+          </p>
           <div className="mt-auto pt-3">
             <Button variant="primary" block icon={<BellRing size={18} aria-hidden />} onClick={exportTimetable} disabled={blocks.length === 0}>
               Download timetable (.ics)

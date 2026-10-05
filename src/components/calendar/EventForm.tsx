@@ -6,6 +6,9 @@ import { Button } from '../common/Button';
 import { TextArea, TextField } from '../common/Fields';
 import { EVENT_KINDS, emptyEventForm, eventToForm, validateEventForm, type EventFormErrors, type EventFormValues } from '../../utils/events';
 import { KIND_META } from './kindMeta';
+import { formatShortDate, formatTime12, isValidISODate, isValidTime, parseISODate, WEEKDAY_SHORT } from '../../utils/date';
+
+const dayLabel = (date: string) => `${WEEKDAY_SHORT[parseISODate(date).getDay()]}, ${formatShortDate(date)}`;
 
 interface Props {
   /** Event being edited, or null to add one. */
@@ -23,6 +26,13 @@ export function EventForm({ event, defaults, today, onClose, onSubmit, onDelete 
   const [v, setV] = useState<EventFormValues>(() => (event ? eventToForm(event) : { ...emptyEventForm(today), ...defaults }));
   const [errors, setErrors] = useState<EventFormErrors>({});
   const set = <K extends keyof EventFormValues>(k: K, value: EventFormValues[K]) => setV((p) => ({ ...p, [k]: value }));
+
+  // A multi-day event with times runs continuously from the first to the last day.
+  const multiDay = isValidISODate(v.date) && isValidISODate(v.endDate) && v.endDate > v.date;
+  const spanText =
+    multiDay && !v.allDay && isValidTime(v.startTime)
+      ? `Runs from ${dayLabel(v.date)}, ${formatTime12(v.startTime)} until ${dayLabel(v.endDate)}${isValidTime(v.endTime) ? `, ${formatTime12(v.endTime)}` : ''}.`
+      : null;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -83,8 +93,9 @@ export function EventForm({ event, defaults, today, onClose, onSubmit, onDelete 
             min={v.date || undefined}
             onChange={(e) => set('endDate', e.target.value)}
             error={errors.endDate}
-            hint="Only for multi-day"
+            hint={v.endDate ? undefined : 'Only for multi-day'}
           />
+          {v.endDate && <ClearButton label="Clear end date" onClick={() => set('endDate', '')} />}
         </div>
 
         <label className="flex min-h-touch items-center gap-3 rounded-xl border border-slate-200 px-3 dark:border-slate-700">
@@ -95,9 +106,18 @@ export function EventForm({ event, defaults, today, onClose, onSubmit, onDelete 
         {!v.allDay && (
           <div className="grid grid-cols-2 gap-3">
             <TextField label="Start time" type="time" value={v.startTime} onChange={(e) => set('startTime', e.target.value)} error={errors.startTime} required />
-            <TextField label="End time" type="time" value={v.endTime} onChange={(e) => set('endTime', e.target.value)} error={errors.endTime} hint="Optional" />
+            <TextField
+              label="End time"
+              type="time"
+              value={v.endTime}
+              onChange={(e) => set('endTime', e.target.value)}
+              error={errors.endTime}
+              hint={v.endTime ? undefined : 'Optional'}
+            />
+            {v.endTime && <ClearButton label="Clear end time" onClick={() => set('endTime', '')} />}
           </div>
         )}
+        {spanText && <p className="text-sm text-slate-600 dark:text-slate-400">{spanText}</p>}
 
         <fieldset>
           <legend className="text-sm font-medium text-slate-700 dark:text-slate-300">Type</legend>
@@ -122,6 +142,17 @@ export function EventForm({ event, defaults, today, onClose, onSubmit, onDelete 
         <TextArea label="Notes" value={v.notes} onChange={(e) => set('notes', e.target.value)} error={errors.notes} maxLength={2000} />
       </form>
     </Modal>
+  );
+}
+
+/** Date/time inputs are hard to empty on iPhone, so offer a button. */
+function ClearButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div className="col-start-2 -mt-3">
+      <button type="button" onClick={onClick} className="inline-flex min-h-touch items-center text-sm font-medium text-brand-700 underline dark:text-brand-300">
+        {label}
+      </button>
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CalendarPlus, GraduationCap, ListFilter, Plus, RotateCcw, Star, TreePalm } from 'lucide-react';
+import { CalendarPlus, ChevronDown, GraduationCap, ListFilter, Plus, RotateCcw, Star, TreePalm } from 'lucide-react';
 import type { CalendarEvent } from '../types/extras';
 import { useAppData } from '../hooks/useAppData';
 import { useExtras } from '../hooks/useExtras';
@@ -93,7 +93,8 @@ export default function Calendar() {
   const upcomingList = filterEvents(upcoming(events, today), filter);
   const semesterList = filterEvents(sortEvents(events.filter((e) => e.source === 'semester')), filter);
   const importantList = sortEvents(events.filter((e) => e.important));
-  const importantAhead = importantList.filter((e) => eventEnd(e) >= today).length;
+  const importantAhead = importantList.filter((e) => eventEnd(e) >= today);
+  const importantPast = importantList.filter((e) => eventEnd(e) < today);
 
   return (
     <div className="space-y-4">
@@ -185,17 +186,28 @@ export default function Calendar() {
         <>
           <p className="text-sm text-slate-600 dark:text-slate-400">
             Starred dates show on Today with a countdown and remind you the day before when you add them to your phone’s calendar (Sync tab).{' '}
-            {importantAhead > 0 && <strong className="text-slate-800 dark:text-slate-200">{importantAhead} still ahead.</strong>}
+            {importantAhead.length > 0 && <strong className="text-slate-800 dark:text-slate-200">{importantAhead.length} still ahead.</strong>}
           </p>
-          {importantList.length > 0 ? (
-            <EventList events={importantList} todayLine {...rowProps} />
+          {importantAhead.length > 0 ? (
+            <EventList events={importantAhead} from={today} {...rowProps} />
           ) : (
-            <EmptyState icon={<Star size={32} aria-hidden />} title="No important dates yet">
+            <EmptyState icon={<Star size={32} aria-hidden />} title="No important dates ahead">
               <p>Tap the star on any date, or add your own.</p>
               <Button className="mt-2" variant="primary" icon={<Plus size={18} aria-hidden />} onClick={addImportant}>
                 Add important date
               </Button>
             </EmptyState>
+          )}
+          {importantPast.length > 0 && (
+            <details className="group rounded-2xl border border-slate-200 dark:border-slate-800">
+              <summary className="flex min-h-touch cursor-pointer list-none items-center gap-2 px-4 font-medium text-slate-700 dark:text-slate-300 [&::-webkit-details-marker]:hidden">
+                <ChevronDown size={18} aria-hidden className="transition-transform group-open:rotate-180" />
+                Past important dates ({importantPast.length})
+              </summary>
+              <div className="px-3 pb-3">
+                <EventList events={importantPast} {...rowProps} />
+              </div>
+            </details>
           )}
         </>
       )}

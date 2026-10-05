@@ -84,7 +84,8 @@ test('add, edit and delete a personal important date', async ({ page }) => {
   await dialog.getByLabel('End date').fill('2026-11-01');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog.getByText('The end date can’t be before the start date.')).toBeVisible();
-  await dialog.getByLabel('End date').fill('');
+  await dialog.getByRole('button', { name: 'Clear end date' }).click();
+  await expect(dialog.getByLabel('End date')).toHaveValue('');
   await dialog.getByLabel('All day').uncheck();
   await dialog.getByLabel('Start time').fill('10:00');
   await dialog.getByLabel('End time').fill('09:00');
