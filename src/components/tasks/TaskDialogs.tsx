@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { CalendarClock, Copy, Pencil, SkipForward, Trash2, Undo2 } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { CalendarClock, CheckCircle2, Circle, Clock, Copy, Pencil, SkipForward, Trash2, Undo2 } from 'lucide-react';
 import type { Task } from '../../types/task';
 import { Modal, ConfirmDialog } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -7,7 +7,10 @@ import { TaskForm } from './TaskForm';
 import { MoveDialog } from './MoveDialog';
 import { toRecurrence, type TaskFormValues } from '../../utils/taskForm';
 import { useTasks } from '../../hooks/useTasks';
+import { useExtras } from '../../hooks/useExtras';
+import { useToast } from '../../hooks/useToast';
 import { formatLongDate, formatTime12 } from '../../utils/date';
+import { availableFrom, canMarkDone, gateMessage } from '../../utils/timeGate';
 
 type DialogState =
   | { kind: 'none' }
@@ -17,6 +20,35 @@ type DialogState =
   | { kind: 'delete'; task: Task };
 
 /**
+ * The ONE place every tick goes through (task cards, the action sheet, the
+ * week grid, reminders). With the time-lock on (prefs.timeGate) a task can't
+ * be ticked before it starts: nothing changes and an alert explains why.
+ * Un-ticking is always allowed (skipping goes through `skip`, never gated).
+ * Returns true when the task was toggled.
+ */
+export function useTaskToggle() {
+  const { toggle } = useTasks();
+  const { prefs } = useExtras();
+  const { toast } = useToast();
+  const gateOn = prefs.timeGate;
+  return useCallback(
+    (task: Task): boolean => {
+      if (!task.completed) {
+        const now = new Date();
+        if (!canMarkDone(task, now, gateOn)) {
+          const msg = gateMessage(task, now);
+          toast({ id: 'time-gate', tone: 'warning', title: msg.title, body: msg.body, duration: 6000 });
+          return false;
+        }
+      }
+      toggle(task);
+      return true;
+    },
+    [toggle, gateOn, toast],
+  );
+}
+
+/**
  * All task dialogs (actions sheet, add/edit form, reschedule, delete).
  * Usage: const dlg = useTaskDialogs(); … dlg.openActions(task) … {dlg.element}
  */
@@ -24,6 +56,8 @@ export function useTaskDialogs() {
   const [state, setState] = useState<DialogState>({ kind: 'none' });
   const close = () => setState({ kind: 'none' });
   const ops = useTasks();
+  const toggle = useTaskToggle();
+  const { prefs } = useExtras();
 
   const handleSubmit = (task: Task | null, v: TaskFormValues) => {
     const rec = toRecurrence(v);
@@ -85,12 +119,36 @@ export function useTaskDialogs() {
   if (state.kind === 'actions') {
     const t = state.task;
     const go = (next: DialogState) => setState(next);
+    const done = t.completed && !t.skipped;
+    const locked = !t.completed && !canMarkDone(t, new Date(), prefs.timeGate);
     element = (
       <Modal open title={t.title} onClose={close}>
         <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
           {formatLongDate(t.date)} · {formatTime12(t.startTime)} – {formatTime12(t.endTime)}
         </p>
         <div className="grid gap-2">
+          <Button
+            icon={
+              done ? (
+                <Circle size={18} aria-hidden />
+              ) : locked ? (
+                <Clock size={18} aria-hidden className="text-slate-500" />
+              ) : (
+                <CheckCircle2 size={18} aria-hidden className="text-emerald-600" />
+              )
+            }
+            onClick={() => {
+              // Close first: the "not yet" alert can't show above an open dialog.
+              close();
+              toggle(t);
+            }}
+            block
+            className={`justify-start ${locked ? 'text-slate-500 dark:text-slate-400' : ''}`}
+            aria-label={done ? 'Mark not done' : locked ? `Mark done (available from ${availableFrom(t, new Date())})` : 'Mark done'}
+          >
+            {done ? 'Mark not done' : 'Mark done'}
+            {locked && <span className="text-sm font-normal">· from {availableFrom(t, new Date())}</span>}
+          </Button>
           <Button icon={<Pencil size={18} aria-hidden />} onClick={() => go({ kind: 'edit', task: t, date: t.date })} block className="justify-start">
             Edit
           </Button>
@@ -195,6 +253,7 @@ export function useTaskDialogs() {
     openActions: (task: Task) => setState({ kind: 'actions', task }),
     openAdd: (date: string) => setState({ kind: 'edit', task: null, date }),
     openEdit: (task: Task) => setState({ kind: 'edit', task, date: task.date }),
-    toggle: ops.toggle,
+    openMove: (task: Task) => setState({ kind: 'move', task }),
+    toggle,
   };
 }
