@@ -23,11 +23,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - id: pages
-        uses: actions/configure-pages@v5
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      # Needs Settings → Pages → Source: "GitHub Actions" (one-time, see README).
+      - id: pages
+        uses: actions/configure-pages@v5
       - run: npm run build
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
