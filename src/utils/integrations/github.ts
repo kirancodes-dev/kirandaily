@@ -1,0 +1,236 @@
+import { z } from 'zod';
+import { toISODate } from '../date';
+import { dayCountSchema, type DayCount } from './contrib';
+import { fetchValidated, IntegrationError, type RequestOptions } from './http';
+import { isValidUsername, profileUrl } from './usernames';
+
+/**
+ * GitHub stats from public, CORS-enabled APIs (no token, 60 requests/hour per network):
+ * the REST API for the profile and recent repos, and github-contributions-api.jogruber.de
+ * for the contribution graph – falling back to public push events (last 90 days).
+ */
+
+const API = 'https://api.github.com';
+const CONTRIBUTIONS_API = 'https://github-contributions-api.jogruber.de/v4';
+const HEADERS = { Accept: 'application/vnd.github+json' };
+const AVATAR_PREFIX = 'https://avatars.githubusercontent.com/';
+const GITHUB_PREFIX = 'https://github.com/';
+
+export interface GitHubProfile {
+  login: string;
+  name: string | null;
+  /** Only GitHub's own avatar host is ever used. */
+  avatarUrl: string | null;
+  htmlUrl: string;
+  publicRepos: number;
+  followers: number;
+  following: number;
+}
+
+export interface GitHubRepo {
+  name: string;
+  htmlUrl: string;
+  description: string | null;
+  language: string | null;
+  stars: number;
+  /** ISO timestamp of the last push. */
+  pushedAt: string | null;
+}
+
+export interface ContributionCalendar {
+  /** "contributions" = full last-year graph; "events" = public pushes of the last 90 days. */
+  source: 'contributions' | 'events';
+  total: number;
+  days: DayCount[];
+}
+
+export interface GitHubStats {
+  username: string;
+  profile: GitHubProfile;
+  /** null when the repo list couldn't be loaded. */
+  repos: GitHubRepo[] | null;
+  /** null when neither the graph API nor the events fallback answered. */
+  calendar: ContributionCalendar | null;
+}
+
+/* ───────────── API responses (never trusted) ───────────── */
+
+const count = z.number().int().min(0);
+const text = (max: number) => z.string().max(max);
+
+const userResponse = z.object({
+  login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/),
+  name: text(255).nullable().optional(),
+  avatar_url: text(500).nullable().optional(),
+  html_url: text(500),
+  public_repos: count,
+  followers: count,
+  following: count,
+});
+
+const repoResponse = z.object({
+  name: text(200),
+  html_url: text(500),
+  description: text(2000).nullable().optional(),
+  language: text(100).nullable().optional(),
+  stargazers_count: count,
+  pushed_at: z.string().datetime({ offset: true }).nullable().optional(),
+});
+
+const contributionsResponse = z.object({
+  total: z.object({ lastYear: count }),
+  contributions: z
+    .array(z.object({ date: z.string(), count, level: z.number().int().min(0).max(4).optional() }))
+    .max(800),
+});
+
+const eventsResponse = z
+  .array(
+    z.object({
+      type: z.string(),
+      created_at: z.string().datetime({ offset: true }),
+      payload: z
+        .object({ size: count.optional(), commits: z.array(z.unknown()).optional() })
+        .nullable()
+        .optional(),
+    }),
+  )
+  .max(300);
+
+/* ───────────── Normalised data (also used to validate the device cache) ───────────── */
+
+export const gitHubStatsSchema: z.ZodType<GitHubStats, z.ZodTypeDef, unknown> = z.object({
+  username: z.string(),
+  profile: z.object({
+    login: z.string(),
+    name: z.string().nullable(),
+    avatarUrl: z.string().startsWith(AVATAR_PREFIX).nullable(),
+    htmlUrl: z.string().startsWith(GITHUB_PREFIX),
+    publicRepos: count,
+    followers: count,
+    following: count,
+  }),
+  repos: z
+    .array(
+      z.object({
+        name: z.string(),
+        htmlUrl: z.string().startsWith(GITHUB_PREFIX),
+        description: z.string().nullable(),
+        language: z.string().nullable(),
+        stars: count,
+        pushedAt: z.string().nullable(),
+      }),
+    )
+    .nullable(),
+  calendar: z
+    .object({ source: z.enum(['contributions', 'events']), total: count, days: z.array(dayCountSchema) })
+    .nullable(),
+});
+
+function checkUsername(username: string): string {
+  if (!isValidUsername(username)) {
+    throw new IntegrationError('invalid_username', 'That isn’t a valid GitHub username (letters, numbers and - only).');
+  }
+  return encodeURIComponent(username);
+}
+
+const safeLink = (url: string) => (url.startsWith(GITHUB_PREFIX) ? url : null);
+
+export async function fetchGitHubProfile(username: string, opts: RequestOptions = {}): Promise<GitHubProfile> {
+  const u = checkUsername(username);
+  const res = await fetchValidated(`${API}/users/${u}`, userResponse, {
+    ...opts,
+    service: 'GitHub',
+    headers: HEADERS,
+    notFound: `There’s no GitHub user named “${username}”. Check the spelling.`,
+  });
+  return {
+    login: res.login,
+    name: res.name?.trim() || null,
+    avatarUrl: res.avatar_url && res.avatar_url.startsWith(AVATAR_PREFIX) ? res.avatar_url : null,
+    htmlUrl: safeLink(res.html_url) ?? profileUrl('github', res.login)!,
+    publicRepos: res.public_repos,
+    followers: res.followers,
+    following: res.following,
+  };
+}
+
+/** The 5 most recently pushed public repos. */
+export async function fetchGitHubRepos(username: string, opts: RequestOptions = {}): Promise<GitHubRepo[]> {
+  const u = checkUsername(username);
+  const res = await fetchValidated(`${API}/users/${u}/repos?sort=pushed&per_page=5`, z.array(repoResponse).max(100), {
+    ...opts,
+    service: 'GitHub',
+    headers: HEADERS,
+  });
+  return res
+    .filter((r) => safeLink(r.html_url))
+    .map((r) => ({
+      name: r.name,
+      htmlUrl: r.html_url,
+      description: r.description?.trim() || null,
+      language: r.language || null,
+      stars: r.stargazers_count,
+      pushedAt: r.pushed_at ?? null,
+    }))
+    .sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''))
+    .slice(0, 5);
+}
+
+/** Commits per local day from public push events (GitHub keeps ~90 days of them). */
+export function pushEventsToDays(events: z.infer<typeof eventsResponse>): DayCount[] {
+  const byDate = new Map<string, number>();
+  for (const e of events) {
+    if (e.type !== 'PushEvent') continue;
+    // GitHub stopped sending commit counts for some events; a push has at least one commit.
+    const commits = e.payload?.size ?? e.payload?.commits?.length ?? 1;
+    if (commits <= 0) continue;
+    const date = toISODate(new Date(e.created_at));
+    byDate.set(date, (byDate.get(date) ?? 0) + commits);
+  }
+  return [...byDate.entries()].map(([date, n]) => ({ date, count: n })).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Last-year contribution graph, or recent push activity when the graph API is down. */
+export async function fetchGitHubCalendar(username: string, opts: RequestOptions = {}): Promise<ContributionCalendar> {
+  const u = checkUsername(username);
+  try {
+    const res = await fetchValidated(`${CONTRIBUTIONS_API}/${u}?y=last`, contributionsResponse, {
+      ...opts,
+      service: 'The GitHub contributions service',
+    });
+    const days = res.contributions
+      .filter((d) => dayCountSchema.safeParse({ date: d.date, count: d.count }).success)
+      .map((d) => ({ date: d.date, count: d.count }));
+    return { source: 'contributions', total: res.total.lastYear, days };
+  } catch (err) {
+    if (err instanceof IntegrationError && err.kind === 'aborted') throw err;
+    const events = await fetchValidated(`${API}/users/${u}/events/public?per_page=100`, eventsResponse, {
+      ...opts,
+      service: 'GitHub',
+      headers: HEADERS,
+    });
+    const days = pushEventsToDays(events);
+    return { source: 'events', total: days.reduce((s, d) => s + d.count, 0), days };
+  }
+}
+
+/**
+ * Everything the GitHub card shows. The profile is required; the repo list and
+ * the graph are optional (null when they fail) so one flaky API doesn't hide the rest.
+ */
+export async function fetchGitHubStats(username: string, opts: RequestOptions = {}): Promise<GitHubStats> {
+  checkUsername(username);
+  const [profile, repos, calendar] = await Promise.allSettled([
+    fetchGitHubProfile(username, opts),
+    fetchGitHubRepos(username, opts),
+    fetchGitHubCalendar(username, opts),
+  ]);
+  if (profile.status === 'rejected') throw profile.reason;
+  return {
+    username,
+    profile: profile.value,
+    repos: repos.status === 'fulfilled' ? repos.value : null,
+    calendar: calendar.status === 'fulfilled' ? calendar.value : null,
+  };
+}
