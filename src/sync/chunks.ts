@@ -49,6 +49,27 @@ export function emptyChunk(id: string): ChunkData | null {
   return id === CORE_ID || id === EXT_ID ? null : emptyMonth();
 }
 
+let defaults: { data: AppData; ext: string } | null = null;
+
+/** The first-run data, and the hash of its ext chunk (built once). */
+function firstRun() {
+  if (!defaults) {
+    const data = createDefaultData();
+    defaults = { data, ext: chunkHash(splitData(data).get(EXT_ID)) };
+  }
+  return defaults;
+}
+
+/**
+ * Hash of a chunk this device has never synced and never changed: an empty
+ * month, or the first-run ext chunk. A device that synced under v1.0 has no
+ * ext yet; comparing it with this (not with "nothing") means its untouched
+ * defaults are taken from the cloud instead of overwriting it.
+ */
+export function untouchedHash(id: string): string {
+  return id === EXT_ID ? firstRun().ext : chunkHash(emptyChunk(id));
+}
+
 /** Month an item belongs to. */
 function itemDate(key: (typeof MONTH_KEYS)[number], item: unknown): string | undefined {
   if (key === 'exclusions') {
@@ -146,10 +167,19 @@ function unionBy<T>(local: T[], remote: T[], key: (item: T) => string): T[] {
 
 const byId = (x: unknown) => String((x as { id?: unknown }).id);
 
+/** An object section (profile, settings…): this device's version, unless it is still the first-run default and the other side's isn't. */
+function changedSide<K extends keyof AppData>(key: K, local: AppData[K] | undefined, remote: AppData[K] | undefined): AppData[K] | undefined {
+  if (remote === undefined) return local;
+  if (local === undefined) return remote;
+  return stableStringify(local) === stableStringify(firstRun().data[key]) ? remote : local;
+}
+
 /**
  * Merges a chunk edited on two devices while offline. Lists are combined by
- * id (nothing is lost; this device wins when both changed the same item);
- * single objects (profile, settings, roadmaps, CGPA) keep this device's version.
+ * id (nothing is lost; this device wins when both changed the same item).
+ * Single objects (profile, settings, roadmaps, CGPA, profile details,
+ * preferences) keep this device's version, unless this device never changed
+ * it from the first-run default; then the other device's version is kept.
  */
 export function mergeChunk(id: string, local: ChunkData | undefined, remote: ChunkData | undefined): ChunkData | undefined {
   if (!local) return remote;
@@ -157,13 +187,23 @@ export function mergeChunk(id: string, local: ChunkData | undefined, remote: Chu
   if (id === EXT_ID) {
     const l = local as ExtChunk;
     const r = remote as ExtChunk;
-    return { ...l, events: unionBy(l.events ?? [], r.events ?? [], byId) };
+    return {
+      ...l,
+      profileExtra: changedSide('profileExtra', l.profileExtra, r.profileExtra)!,
+      prefs: changedSide('prefs', l.prefs, r.prefs)!,
+      semesterInfo: changedSide('semesterInfo', l.semesterInfo, r.semesterInfo)!,
+      events: unionBy(l.events ?? [], r.events ?? [], byId),
+    };
   }
   if (id === CORE_ID) {
     const l = local as CoreChunk;
     const r = remote as CoreChunk;
     return {
       ...l,
+      profile: changedSide('profile', l.profile, r.profile)!,
+      settings: changedSide('settings', l.settings, r.settings)!,
+      roadmaps: changedSide('roadmaps', l.roadmaps, r.roadmaps)!,
+      cgpa: changedSide('cgpa', l.cgpa, r.cgpa)!,
       categories: unionBy(l.categories ?? [], r.categories ?? [], byId),
       templates: unionBy(l.templates ?? [], r.templates ?? [], byId),
       subjects: unionBy(l.subjects ?? [], r.subjects ?? [], byId),

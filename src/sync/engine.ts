@@ -24,6 +24,7 @@ import { repairData } from '../utils/storage';
 import {
   chunkHash,
   emptyChunk,
+  untouchedHash,
   isChunkId,
   isPristine,
   joinChunks,
@@ -265,7 +266,7 @@ export class SyncEngine {
       if (!chunk) continue;
       const hash = chunkHash(chunk);
       const base = this.synced[id];
-      if (hash === (base ?? chunkHash(emptyChunk(id)))) continue;
+      if (hash === (base ?? untouchedHash(id))) continue;
       const data = toPlain(chunk);
       if (JSON.stringify(data).length > MAX_CHUNK_BYTES) {
         tooLarge = id;
@@ -361,7 +362,7 @@ export class SyncEngine {
       const localHash = chunkHash(localChunk);
       this.synced[r.id] = remoteHash;
       if (localHash === remoteHash) continue;
-      const localDirty = localHash !== (base ?? chunkHash(emptyChunk(r.id)));
+      const localDirty = localHash !== (base ?? untouchedHash(r.id));
       local.set(r.id, localDirty ? mergeChunk(r.id, localChunk, r.data)! : r.data);
       changed = true;
     }
@@ -378,7 +379,7 @@ export class SyncEngine {
     for (const id of new Set([...chunks.keys(), ...Object.keys(this.synced)])) {
       if (this.inflight.has(id)) continue;
       const chunk = chunks.get(id) ?? emptyChunk(id);
-      if (chunk && chunkHash(chunk) !== (this.synced[id] ?? chunkHash(emptyChunk(id)))) return true;
+      if (chunk && chunkHash(chunk) !== (this.synced[id] ?? untouchedHash(id))) return true;
     }
     return false;
   }

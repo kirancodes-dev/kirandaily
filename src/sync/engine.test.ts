@@ -169,7 +169,9 @@ describe('sync engine', () => {
     const a = device(server, complete('Gym')(createDefaultData()));
     await a.engine.start('kiran');
     await settle();
-    expect(server.docs.get('kiran')!.size).toBe(3); // core + ext + October
+    // core + October. Profile details, calendar and preferences (ext) are still the
+    // first-run defaults, so there is nothing to upload yet (see the upgrade test below).
+    expect([...server.docs.get('kiran')!.keys()].sort()).toEqual(['core', 'm-2026-10']);
     expect(a.state.status.state).toBe('synced');
 
     const b = device(server); // fresh phone
@@ -184,6 +186,12 @@ describe('sync engine', () => {
     a.edit((d) => ({ ...d, profile: { ...d.profile, name: 'Kiran K' } }));
     await settle();
     expect(b.state.data.profile.name).toBe('Kiran K');
+
+    a.edit((d) => ({ ...d, profileExtra: { ...d.profileExtra, bio: 'CSE' }, prefs: { ...d.prefs, remindBeforeMinutes: 10 } }));
+    await settle();
+    expect(server.docs.get('kiran')!.has('ext')).toBe(true);
+    expect(b.state.data.profileExtra.bio).toBe('CSE');
+    expect(b.state.data.prefs.remindBeforeMinutes).toBe(10);
 
     // No echo loops: a handful of writes, not hundreds.
     expect(server.writes).toBeLessThan(10);
@@ -240,6 +248,65 @@ describe('sync engine', () => {
       expect(d.state.data.notes).toHaveLength(0);
     }
     expect(a.state.status.state).toBe('synced');
+  });
+
+  it('a device upgrading from v1.0 takes the profile details another device synced, instead of wiping them', async () => {
+    // Both devices synced under v1.0: the cloud and their sync memory have core, no ext.
+    const server = new FakeServer();
+    const core = toPlain(splitData(createDefaultData()).get('core')!);
+    server.put('kiran', { id: 'core', data: core, hash: chunkHash(core), editedAt: 1, device: 'v1.0' });
+    const v10 = (): SyncMeta => ({ uid: 'kiran', synced: { core: chunkHash(core) } });
+    const mac = device(server);
+    mac.state.meta = v10();
+    const phone = device(server);
+    phone.state.meta = v10();
+
+    // The Mac opens v1.1 first and fills in the profile and reminder settings.
+    await mac.engine.start('kiran');
+    await settle();
+    mac.edit((d) => ({
+      ...d,
+      profileExtra: { ...d.profileExtra, bio: 'Mac bio', links: { ...d.profileExtra.links, github: 'kirancodes-dev' } },
+      prefs: { ...d.prefs, timeGate: false, remindBeforeMinutes: 10 },
+    }));
+    await settle();
+
+    // Then the iPhone opens v1.1, its profile details untouched.
+    await phone.engine.start('kiran');
+    await settle();
+    for (const d of [mac, phone]) {
+      expect(d.state.data.profileExtra.links.github).toBe('kirancodes-dev');
+      expect(d.state.data.profileExtra.bio).toBe('Mac bio');
+      expect(d.state.data.prefs).toMatchObject({ timeGate: false, remindBeforeMinutes: 10 });
+    }
+    expect((server.docs.get('kiran')!.get('ext')!.data as AppData).profileExtra.bio).toBe('Mac bio');
+  });
+
+  it('"Merge both" keeps the cloud’s profile, settings and progress where this device still has the defaults', async () => {
+    const server = new FakeServer();
+    const mac = device(server, addNote('n-a', 'From laptop')(createDefaultData()));
+    await mac.engine.start('kiran');
+    await settle();
+    mac.edit((d) => ({
+      ...d,
+      profile: { ...d.profile, name: 'Kiran K' },
+      profileExtra: { ...d.profileExtra, bio: 'Mac bio' },
+      prefs: { ...d.prefs, timeGate: false },
+    }));
+    await settle();
+
+    // A new iPhone with one note of its own signs in and merges.
+    const phone = device(server, addNote('n-b', 'From phone')(createDefaultData()));
+    await phone.engine.start('kiran');
+    expect(phone.state.status.state).toBe('needs-choice');
+    await phone.engine.resolveChoice('merge');
+    await settle();
+    for (const d of [mac, phone]) {
+      expect(d.state.data.notes.map((n) => n.title).sort()).toEqual(['From laptop', 'From phone']);
+      expect(d.state.data.profile.name).toBe('Kiran K');
+      expect(d.state.data.profileExtra.bio).toBe('Mac bio');
+      expect(d.state.data.prefs.timeGate).toBe(false);
+    }
   });
 
   it('asks before mixing two devices that both have data', async () => {
