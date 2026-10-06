@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import { ToastContext, type ToastInput } from './contexts';
 
@@ -22,10 +22,17 @@ const ICON = {
 
 let counter = 0;
 
-/** Small notification pop-ups (top of the screen, below the bar). Max 3 at a time. */
+/**
+ * Small notification pop-ups. Max 3 at a time. Phones: top of the screen, below the bar.
+ * Wide screens (Mac): bottom right, clear of the page header and its buttons (Add task…).
+ */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Shown[]>([]);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const onScreen = useRef(new Set<string>());
+  useEffect(() => {
+    onScreen.current = new Set(toasts.map((t) => t.id));
+  }, [toasts]);
 
   const dismiss = useCallback((id: string) => {
     setToasts((t) => t.filter((x) => x.id !== id));
@@ -41,6 +48,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       setToasts((t) => [...t.filter((x) => x.id !== id), shown].slice(-3));
       const old = timers.current.get(id);
       if (old) clearTimeout(old);
+      timers.current.delete(id);
       const duration = input.duration ?? 5000;
       if (duration > 0) timers.current.set(id, setTimeout(() => dismiss(id), duration));
       return id;
@@ -48,13 +56,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [dismiss],
   );
 
-  const value = useMemo(() => ({ toast, dismiss }), [toast, dismiss]);
+  const linger = useCallback(
+    (id: string, ms: number) => {
+      if (!onScreen.current.has(id) || timers.current.has(id)) return;
+      timers.current.set(id, setTimeout(() => dismiss(id), ms));
+    },
+    [dismiss],
+  );
+
+  const value = useMemo(() => ({ toast, dismiss, linger }), [toast, dismiss, linger]);
   return (
     <ToastContext.Provider value={value}>
       {children}
       <div
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[60] flex flex-col items-center gap-2 px-3 lg:left-auto lg:right-4 lg:top-[4.5rem] lg:w-96 lg:items-end"
+        className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[60] flex flex-col items-center gap-2 px-3 lg:bottom-4 lg:left-auto lg:right-4 lg:top-auto lg:w-96 lg:items-end lg:px-0"
       >
         {toasts.map((t) => (
           <div

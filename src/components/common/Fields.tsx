@@ -39,6 +39,8 @@ export function TextField({ label, hint, error, className, ...rest }: FieldProps
         className={INPUT}
         aria-invalid={!!error || undefined}
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+        // Inside a Modal, autoFocus runs before the dialog opens; the Modal focuses this instead.
+        data-autofocus={rest.autoFocus || undefined}
         {...rest}
       />
     </FieldWrap>

@@ -1,5 +1,5 @@
 import type { Priority, Recurrence, RecurrenceType } from '../types/task';
-import { isValidISODate, isValidTime } from './date';
+import { isValidISODate, isValidTime, minutesToTime, todayISO } from './date';
 
 export type EditScope = 'day' | 'series';
 
@@ -32,4 +32,16 @@ export function validateTask(v: TaskFormValues): Partial<Record<keyof TaskFormVa
   else if (v.startTime === v.endTime) errors.endTime = 'End time must differ from start time.';
   if (v.repeat === 'custom' && v.days.length === 0) errors.days = 'Choose at least one day.';
   return errors;
+}
+
+/**
+ * Times a new task starts with: today, the next half hour after now (one hour long), so a task
+ * added in the evening isn't overdue the moment it's saved; other days 6–7 PM.
+ */
+export function defaultTaskTimes(date: string, now: Date): { startTime: string; endTime: string } {
+  if (date !== todayISO(now)) return { startTime: '18:00', endTime: '19:00' };
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  // Late at night the last slot of the day (23:30, running into the night) instead of tomorrow.
+  const start = Math.min(Math.ceil((minutes + 1) / 30) * 30, 23 * 60 + 30);
+  return { startTime: minutesToTime(start), endTime: minutesToTime(start + 60) };
 }

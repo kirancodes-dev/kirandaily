@@ -9,6 +9,7 @@ import { useNow } from '../../hooks/useNow';
 import { getDayTasks } from '../../utils/calculations';
 import { formatTime12, isValidISODate } from '../../utils/date';
 import { canMarkDone } from '../../utils/timeGate';
+import { sessionTask } from '../../utils/timer';
 
 interface Props {
   title: string;
@@ -19,23 +20,34 @@ interface Props {
   startedAt?: string;
   source: StudySession['source'];
   onSave: (session: Omit<StudySession, 'id'>, completeTaskId?: string) => void;
+  /** Closed without a choice (Escape, tap outside, ✕, or Cancel for a manual entry). */
   onClose: () => void;
+  /** "Don’t save" for a timer session (drops it). */
+  onDiscard?: () => void;
 }
 
 /** Asks category, topic (and optional subject / planned task), then saves the duration. */
-export function SessionDialog({ title, initialMinutes, date: initialDate, manual, startedAt, source, onSave, onClose }: Props) {
+export function SessionDialog({ title, initialMinutes, date: initialDate, manual, startedAt, source, onSave, onClose, onDiscard }: Props) {
   const { data, stats } = useAppData();
   const { studyCategories } = useCategories();
+  const now = useNow();
+  const gateOn = data.prefs.timeGate;
+  // The planned study task this is for (running when the timer started, else now): its category,
+  // and for a timer session also "complete it", are filled in.
+  const [planned] = useState(() => {
+    const study = new Set(studyCategories.map((c) => c.id));
+    const times = startedAt ? [new Date(startedAt), new Date()] : [new Date()];
+    return sessionTask(getDayTasks(stats, initialDate), (c) => study.has(c), times);
+  });
   const [date, setDate] = useState(initialDate);
-  const [category, setCategory] = useState(studyCategories[0]?.id ?? 'other');
+  const [category, setCategory] = useState(planned?.category ?? studyCategories[0]?.id ?? 'other');
   const [topic, setTopic] = useState('');
   const [minutes, setMinutes] = useState(String(initialMinutes));
   const [subjectId, setSubjectId] = useState('');
-  const [taskId, setTaskId] = useState('');
+  const [taskId, setTaskId] = useState(() =>
+    planned && !manual && !planned.completed && canMarkDone(planned, new Date(), gateOn) ? planned.id : '',
+  );
   const [error, setError] = useState<string | null>(null);
-
-  const now = useNow();
-  const gateOn = data.prefs.timeGate;
   // Only tasks that have started can be completed (time-lock).
   const openTasks = useMemo(
     () =>
@@ -71,7 +83,7 @@ export function SessionDialog({ title, initialMinutes, date: initialDate, manual
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>{manual ? 'Cancel' : 'Don’t save'}</Button>
+          <Button onClick={manual ? onClose : (onDiscard ?? onClose)}>{manual ? 'Cancel' : 'Don’t save'}</Button>
           <Button variant="primary" onClick={save}>
             Save session
           </Button>

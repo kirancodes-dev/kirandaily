@@ -38,7 +38,7 @@ export default function Goals() {
                 <Card as="article">
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-lg font-semibold">{g.title}</h3>
+                      <h3 className="text-lg font-semibold [overflow-wrap:anywhere]">{g.title}</h3>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
                         {STATUS[g.status]}
                         {g.deadline && ` · by ${formatLongDate(g.deadline)}`}
@@ -51,7 +51,7 @@ export default function Goals() {
                       <Trash2 size={18} aria-hidden />
                     </IconButton>
                   </div>
-                  {g.description && <p className="mt-2 text-slate-700 dark:text-slate-300">{g.description}</p>}
+                  {g.description && <p className="mt-2 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{g.description}</p>}
                   <div className="mt-3">
                     <ProgressBar value={g.progress} label="Progress" tone={g.status === 'completed' ? 'green' : 'brand'} />
                   </div>

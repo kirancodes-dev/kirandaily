@@ -30,7 +30,11 @@ export interface TimerValue {
   resume: () => void;
   /** Stops the timer and returns the focused minutes to record. */
   stop: () => number;
+  /** Pauses the timer and returns the focused minutes so far; the session stays until stop() or discard(). */
+  finish: () => number;
   discard: () => void;
+  /** Puts back a session that was just discarded (Undo). */
+  restore: (state: TimerState) => void;
 }
 
 export const TimerContext = createContext<TimerValue | null>(null);
@@ -68,6 +72,8 @@ export interface ToastInput {
 export interface ToastValue {
   toast: (t: ToastInput) => string;
   dismiss: (id: string) => void;
+  /** Lets a toast that stays until dismissed hide after `ms` (if it's still on screen). */
+  linger: (id: string, ms: number) => void;
 }
 
 export const ToastContext = createContext<ToastValue | null>(null);

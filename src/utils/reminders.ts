@@ -77,6 +77,32 @@ export function toNotices(due: DueReminder[], collapseAt = REMINDER_COLLAPSE_AT)
   return due.map((reminder) => ({ type: 'single', reminder }));
 }
 
+/** A task by id and date (its day). */
+export interface TaskRef {
+  id: string;
+  date: string;
+}
+
+/** The tasks a notice is about. */
+export function noticeTasks(notice: ReminderNotice): TaskRef[] {
+  const list = notice.type === 'single' ? [notice.reminder] : notice.reminders;
+  return list.map((r) => ({ id: r.task.id, date: r.task.date }));
+}
+
+/**
+ * Alerts on screen that a new one makes out of date: those about any of the same tasks
+ * ("German starts now" once "German ended" shows, or a summary that listed German).
+ * Returns their ids, except `keep` (the new alert's own id).
+ */
+export function supersededAlerts(onScreen: Iterable<[string, { tasks: TaskRef[] }]>, tasks: TaskRef[], keep?: string): string[] {
+  const keys = new Set(tasks.map((t) => `${t.date}|${t.id}`));
+  const out: string[] = [];
+  for (const [id, entry] of onScreen) {
+    if (id !== keep && entry.tasks.some((t) => keys.has(`${t.date}|${t.id}`))) out.push(id);
+  }
+  return out;
+}
+
 /** Decide which reminders fire at `now`. */
 export function planReminders(input: ReminderPlanInput): ReminderPlan {
   const { tasks, now, lastCheck, alerted } = input;

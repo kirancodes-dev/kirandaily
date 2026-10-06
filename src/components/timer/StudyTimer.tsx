@@ -11,6 +11,9 @@ import { Banner } from '../common/Feedback';
 import { ConfirmDialog } from '../common/Modal';
 import type { TimerMode } from '../../types/study';
 
+/** Router state that asks the Study page to start the timer (Start timer on a study task that is happening now). */
+export const START_TIMER_STATE = 'kp-start-timer';
+
 interface Props {
   onFinish: (minutes: number, source: 'timer' | 'pomodoro', startedAt: number | null) => void;
 }
@@ -110,7 +113,8 @@ export function StudyTimer({ onFinish }: Props) {
               onClick={() => {
                 const startedAt = state.startedAt;
                 const source = state.mode === 'pomodoro' ? 'pomodoro' : 'timer';
-                const minutes = timer.stop();
+                // Paused, not stopped: the time is only dropped by "Don’t save" or Discard.
+                const minutes = timer.finish();
                 onFinish(minutes, source, startedAt);
               }}
             >

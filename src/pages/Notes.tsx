@@ -55,7 +55,7 @@ export default function Notes() {
               <Card as="article">
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-lg font-semibold">{n.title || 'Untitled'}</h2>
+                    <h2 className="text-lg font-semibold [overflow-wrap:anywhere]">{n.title || 'Untitled'}</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-400">
                       {NOTE_CATEGORIES[n.category]} · {formatLongDate(n.date)}
                     </p>
@@ -67,7 +67,7 @@ export default function Notes() {
                     <Trash2 size={18} aria-hidden />
                   </IconButton>
                 </div>
-                {n.content && <p className="mt-2 line-clamp-6 whitespace-pre-wrap">{n.content}</p>}
+                {n.content && <p className="mt-2 line-clamp-6 whitespace-pre-wrap [overflow-wrap:anywhere]">{n.content}</p>}
               </Card>
             </li>
           ))}

@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PencilLine, Trash2 } from 'lucide-react';
 import { useAppData } from '../hooks/useAppData';
 import { useToday } from '../hooks/useToday';
 import { useStudySessions } from '../hooks/useStudySessions';
 import { useCategories } from '../hooks/useCategories';
-import { StudyTimer } from '../components/timer/StudyTimer';
+import { useStudyTimer } from '../hooks/useStudyTimer';
+import { useToast } from '../hooks/useToast';
+import { START_TIMER_STATE, StudyTimer } from '../components/timer/StudyTimer';
 import { SessionDialog } from '../components/study/SessionDialog';
 import { CategoryBreakdown } from '../components/study/CategoryBreakdown';
 import { Card } from '../components/common/Card';
@@ -32,6 +35,20 @@ export default function Study() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [period, setPeriod] = useState<Period>('week');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const timer = useStudyTimer();
+  const { toast } = useToast();
+
+  // "Start timer" on a study task that is happening now (Today, a reminder) starts it right away.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const idle = timer.state.status === 'idle';
+  const { start } = timer;
+  const preset = data.settings.pomodoro;
+  useEffect(() => {
+    if (location.state !== START_TIMER_STATE) return;
+    if (idle) start('stopwatch', preset);
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null });
+  }, [location.state, location.pathname, location.search, navigate, idle, start, preset]);
 
   // Full periods (for targets) and the part up to today (for time studied).
   const periods = useMemo(() => {
@@ -149,9 +166,36 @@ export default function Study() {
           manual={pending.source === 'manual'}
           startedAt={pending.startedAt}
           source={pending.source}
-          onClose={() => setPending(null)}
+          onClose={() => {
+            setPending(null);
+            // Closed without a choice (Escape, tap outside, ✕): the paused timer still holds the time.
+            if (pending.source !== 'manual') {
+              toast({
+                id: 'session-kept',
+                tone: 'info',
+                title: 'Session not saved yet',
+                body: 'The timer is paused with your time. Finish saves it, Resume goes on.',
+              });
+            }
+          }}
+          onDiscard={
+            pending.source === 'manual'
+              ? undefined
+              : () => {
+                  const kept = timer.state;
+                  timer.discard();
+                  setPending(null);
+                  toast({
+                    id: 'session-kept',
+                    tone: 'info',
+                    title: 'Session not saved',
+                    action: { label: 'Undo', onClick: () => timer.restore(kept) },
+                  });
+                }
+          }
           onSave={(s, taskId) => {
             addSession(s, taskId);
+            if (pending.source !== 'manual') timer.stop();
             setPending(null);
           }}
         />

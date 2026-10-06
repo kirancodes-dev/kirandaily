@@ -1,25 +1,29 @@
 import { useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppData } from '../../hooks/useAppData';
 import { useSync } from '../../hooks/useSync';
 import { useToast } from '../../hooks/useToast';
 import { useTaskToggle } from '../tasks/TaskDialogs';
+import { START_TIMER_STATE } from '../timer/StudyTimer';
 import { getDayTasks, type StatsContext } from '../../utils/calculations';
 import { addDays, todayISO } from '../../utils/date';
 import {
   loadAlerted,
+  noticeTasks,
   noticeText,
   overdueTasks,
   planReminders,
   pruneAlerted,
   refreshDue,
   saveAlerted,
+  supersededAlerts,
   toNotices,
   waitForSync,
   withOvernight,
   type DueReminder,
   type ReminderNotice,
   type SyncView,
+  type TaskRef,
 } from '../../utils/reminders';
 import {
   closeSystemNotification,
@@ -63,6 +67,26 @@ function pageHidden(): boolean {
   }
 }
 
+/** A sheet or dialog is open: the page behind it (toasts too) can't be seen properly or tapped. */
+function dialogOpen(): boolean {
+  try {
+    return document.querySelector('dialog[open]') !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "Show list" on Today: brings Needs attention (else Happening now) into view and moves focus
+ * there. Returns false when neither is on the page (another day is shown).
+ */
+function showAttention(): boolean {
+  const heading = document.getElementById('attention-heading') ?? document.getElementById('now-heading');
+  if (!heading) return false;
+  heading.focus();
+  return true;
+}
+
 /** Today's tasks plus last night's that are still running or just ended (sleep). */
 function todaysTasks(stats: StatsContext, today: string): ReturnType<typeof getDayTasks> {
   return withOvernight(getDayTasks(stats, addDays(today, -1)), getDayTasks(stats, today), today);
@@ -85,16 +109,17 @@ const remindersOf = (n: ReminderNotice): DueReminder[] => (n.type === 'single' ?
  */
 export function ReminderEngine() {
   const { stats, data } = useAppData();
-  const { toast, dismiss } = useToast();
+  const { toast, dismiss, linger } = useToast();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const toggle = useTaskToggle();
   const { configured, ready, user, status } = useSync();
   const sync: SyncView = { configured, ready, signedIn: !!user, state: status.state };
 
   // The interval below reads the latest values through this ref.
-  const latest = useRef({ stats, prefs: data.prefs, categories: data.categories, toast, dismiss, navigate, toggle, sync });
+  const latest = useRef({ stats, prefs: data.prefs, categories: data.categories, toast, dismiss, linger, navigate, pathname, toggle, sync });
   useEffect(() => {
-    latest.current = { stats, prefs: data.prefs, categories: data.categories, toast, dismiss, navigate, toggle, sync };
+    latest.current = { stats, prefs: data.prefs, categories: data.categories, toast, dismiss, linger, navigate, pathname, toggle, sync };
   });
 
   /** The last check made while the app was in front. */
@@ -104,8 +129,11 @@ export function ReminderEngine() {
   const backlog = useRef<DueReminder[]>([]);
   /** Keys already announced by a beep or a system notification (not repeated). */
   const announced = useRef(new Set<string>());
-  /** Reminder toasts on screen → their tasks, so a toast closes once its tasks are ticked or skipped. */
-  const shown = useRef(new Map<string, { tag: string; at: number; tasks: { id: string; date: string }[] }>());
+  /**
+   * Reminder toasts on screen → their tasks, so a toast closes once its tasks are ticked or skipped
+   * (or a newer alert about them shows). `sticky`: shown while another window was in front.
+   */
+  const shown = useRef(new Map<string, { tag: string; at: number; tasks: TaskRef[]; sticky: boolean }>());
   const holdUntil = useRef(0);
   const waitingSince = useRef<number | null>(null);
   const runCheck = useRef<() => void>(() => undefined);
@@ -144,11 +172,15 @@ export function ReminderEngine() {
       let action: { label: string; onClick: () => void };
       let tone: 'info' | 'warning' = 'warning';
       if (notice.type === 'summary') {
-        action = { label: 'Open Today', onClick: () => navigate('/') };
+        // Already on Today: the list is right there (Needs attention), so point to it.
+        const toList = () => (latest.current.pathname === '/' && showAttention()) || navigate('/');
+        action = { label: latest.current.pathname === '/' ? 'Show list' : 'Open Today', onClick: toList };
       } else if (notice.reminder.kind === 'starting') {
         tone = 'info';
         const isStudy = categories.find((c) => c.id === notice.reminder.task.category)?.isStudy ?? false;
-        action = isStudy ? { label: 'Start timer', onClick: () => navigate('/study') } : { label: 'Open', onClick: () => navigate('/') };
+        action = isStudy
+          ? { label: 'Start timer', onClick: () => navigate('/study', { state: START_TIMER_STATE }) }
+          : { label: 'Open', onClick: () => navigate('/') };
       } else {
         const { id, date } = notice.reminder.task;
         action = {
@@ -163,8 +195,14 @@ export function ReminderEngine() {
       // Visible but another window in front (Mac): keep it until you're back.
       const away = pageInBackground();
       const toastId = `reminder-${tag}`;
+      const tasks = noticeTasks(notice);
+      // One alert per task: an older one about the same task is out of date ("starts now" → "ended").
+      for (const id of supersededAlerts(shown.current, tasks, toastId)) {
+        latest.current.dismiss(id);
+        shown.current.delete(id);
+      }
       toast({ id: toastId, title, body, tone, action, duration: away ? 0 : TOAST_MS });
-      shown.current.set(toastId, { tag, at: now.getTime(), tasks: reminders.map((r) => ({ id: r.task.id, date: r.task.date })) });
+      shown.current.set(toastId, { tag, at: now.getTime(), tasks, sticky: away });
 
       // Announce each reminder once: a system notification (with its own sound) while away, else a beep.
       if (reminders.every((r) => announced.current.has(r.key))) return;
@@ -230,6 +268,15 @@ export function ReminderEngine() {
         announceHidden(plan.due, now, today);
         return;
       }
+      if (dialogOpen()) {
+        // A toast would sit behind the sheet, where it can't be tapped. Beep once now; the
+        // reminders stay due (not saved as alerted) and show as soon as the sheet closes.
+        const fresh = plan.due.filter((d) => !announced.current.has(d.key));
+        if (fresh.length && prefs.reminderSound) playBeep(fresh.some((d) => d.kind === 'overdue') ? 'warning' : 'info');
+        fresh.forEach((d) => announced.current.add(d.key));
+        if (plan.due.length || backlog.current.length) afterDialog();
+        return;
+      }
 
       // In front: what is due now plus what was notified while away, re-checked against the latest data.
       const due = refreshDue([...backlog.current, ...plan.due], tasks, now);
@@ -242,6 +289,21 @@ export function ReminderEngine() {
       toNotices(due).forEach((n) => show(n, now));
     };
     runCheck.current = check;
+
+    let dialogPoll: number | undefined;
+    const afterDialog = () => {
+      window.clearTimeout(dialogPoll);
+      dialogPoll = window.setTimeout(() => (dialogOpen() ? afterDialog() : check()), 1_000);
+    };
+
+    // Back from another window (Mac): alerts kept on screen meanwhile now fade like any other.
+    const onFocus = () => {
+      for (const [id, entry] of shown.current) {
+        if (!entry.sticky) continue;
+        latest.current.linger(id, TOAST_MS);
+        entry.sticky = false;
+      }
+    };
 
     let settle: number | undefined;
     const wake = () => {
@@ -264,13 +326,16 @@ export function ReminderEngine() {
     const onFirstTouch = () => unlockAudio();
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('focus', wake);
+    window.addEventListener('focus', onFocus);
     window.addEventListener('pointerdown', onFirstTouch, { once: true });
     return () => {
       window.clearTimeout(first);
       window.clearTimeout(settle);
+      window.clearTimeout(dialogPoll);
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', wake);
       window.removeEventListener('focus', wake);
+      window.removeEventListener('focus', onFocus);
       window.removeEventListener('pointerdown', onFirstTouch);
       runCheck.current = () => undefined;
     };

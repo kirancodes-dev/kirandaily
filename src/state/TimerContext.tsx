@@ -6,12 +6,12 @@ import { TIMER_KEY } from '../utils/storage';
 import {
   IDLE_TIMER,
   elapsedMs,
+  focusedMinutes,
   pauseTimer,
   pomodoroInfo,
   resumeTimer,
   sanitizeTimer,
   startTimer,
-  studyMsForTimer,
 } from '../utils/timer';
 
 function beep() {
@@ -101,10 +101,19 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const resume = useCallback(() => safe(() => setState((s) => resumeTimer(s, Date.now()))), [safe, setState]);
   const discard = useCallback(() => safe(() => setState(IDLE_TIMER)), [safe, setState]);
   const stop = useCallback(() => {
-    const ms = studyMsForTimer(state, Date.now());
+    const minutes = focusedMinutes(state, Date.now());
     setState(IDLE_TIMER);
-    return Number.isFinite(ms) ? Math.max(1, Math.round(ms / 60_000)) : 1;
+    return minutes;
   }, [state, setState]);
+  // Finish only pauses: the session (saved in storage) stays until it is saved or discarded,
+  // so closing the save sheet, a reload or iOS closing the app can't lose it.
+  const finish = useCallback(() => {
+    const t = Date.now();
+    const minutes = focusedMinutes(state, t);
+    setState((s) => pauseTimer(s, t));
+    return minutes;
+  }, [state, setState]);
+  const restore = useCallback((saved: TimerState) => safe(() => setState(saved)), [safe, setState]);
 
   const value = useMemo(
     () => ({
@@ -117,9 +126,11 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       pause,
       resume,
       stop,
+      finish,
       discard,
+      restore,
     }),
-    [state, elapsed, pomodoro, error, start, pause, resume, stop, discard],
+    [state, elapsed, pomodoro, error, start, pause, resume, stop, finish, discard, restore],
   );
   return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;
 }

@@ -58,7 +58,7 @@ export function LeetCodeCard() {
     <IntegrationCard
       title={
         link ? (
-          <ExternalLink href={link} className="hover:underline">
+          <ExternalLink href={link} className="min-h-touch hover:underline">
             LeetCode
           </ExternalLink>
         ) : (

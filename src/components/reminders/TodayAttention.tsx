@@ -10,6 +10,7 @@ import { useStudyTimer } from '../../hooks/useStudyTimer';
 import { useToast } from '../../hooks/useToast';
 import { useTaskDialogs } from '../tasks/TaskDialogs';
 import { Button } from '../common/Button';
+import { START_TIMER_STATE } from '../timer/StudyTimer';
 import { ProgressBar } from '../common/Progress';
 import { getDayTasks } from '../../utils/calculations';
 import { addDays, formatMinutes, formatTime12 } from '../../utils/date';
@@ -163,7 +164,7 @@ export function TodayAttention({ date, today }: { date: string; today: string })
           <Button
             variant="primary"
             icon={<Timer size={18} aria-hidden />}
-            onClick={() => navigate('/study')}
+            onClick={() => navigate('/study', timerBusy ? undefined : { state: START_TIMER_STATE })}
             className="w-full sm:w-auto"
           >
             {timerBusy ? 'Open timer' : 'Start timer'}
@@ -188,7 +189,7 @@ export function TodayAttention({ date, today }: { date: string; today: string })
                 <AlertTriangle size={18} aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
-                <h2 id="attention-heading" className="flex items-center gap-2 text-lg font-semibold">
+                <h2 id="attention-heading" tabIndex={-1} className="flex items-center gap-2 rounded-lg text-lg font-semibold">
                   Needs attention
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-sm font-semibold tabular-nums text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
                     {overdue.length}

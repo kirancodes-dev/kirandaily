@@ -35,20 +35,25 @@ export function RoadmapView({ id, labels = STATUS_LABELS, renderExtra }: Props) 
                 const expanded = open === topic.id;
                 return (
                   <li key={topic.id} className="py-2">
+                    {/* The title keeps a readable width: on phones the controls move to their own line below it. */}
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         aria-expanded={expanded}
                         aria-controls={`notes-${topic.id}`}
                         onClick={() => setOpen(expanded ? null : topic.id)}
-                        className="flex min-h-touch min-w-0 flex-1 items-center gap-1 text-left font-medium"
+                        className="flex min-h-touch min-w-[9rem] flex-1 items-center gap-1 text-left font-medium"
                       >
-                        {expanded ? <ChevronDown size={18} aria-hidden /> : <ChevronRight size={18} aria-hidden />}
-                        <span className={topic.status === 'completed' ? 'text-slate-500 line-through dark:text-slate-400' : ''}>{topic.title}</span>
-                        {topic.notes && <span className="ml-1 text-xs text-slate-500">· notes</span>}
+                        {expanded ? <ChevronDown size={18} aria-hidden className="shrink-0" /> : <ChevronRight size={18} aria-hidden className="shrink-0" />}
+                        <span className={`min-w-0 [overflow-wrap:anywhere] ${topic.status === 'completed' ? 'text-slate-500 line-through dark:text-slate-400' : ''}`}>
+                          {topic.title}
+                        </span>
+                        {topic.notes && <span className="ml-1 shrink-0 text-xs text-slate-500">· notes</span>}
                       </button>
-                      {renderExtra?.(topic)}
-                      <StatusSelect value={topic.status} onChange={(s) => setStatus(topic.id, s)} label={`Status of ${topic.title}`} labels={labels} />
+                      <div className="ml-auto flex items-center gap-2">
+                        {renderExtra?.(topic)}
+                        <StatusSelect value={topic.status} onChange={(s) => setStatus(topic.id, s)} label={`Status of ${topic.title}`} labels={labels} />
+                      </div>
                     </div>
                     {expanded && (
                       <div id={`notes-${topic.id}`} className="mt-2">

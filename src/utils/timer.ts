@@ -1,4 +1,6 @@
 import type { PomodoroPreset, TimerState } from '../types/study';
+import type { Task } from '../types/task';
+import { isHappening, taskStart } from './timeGate';
 
 export const IDLE_TIMER: TimerState = {
   status: 'idle',
@@ -58,6 +60,26 @@ export function pomodoroInfo(elapsed: number, preset: PomodoroPreset): PomodoroI
 export function studyMsForTimer(state: TimerState, now: number): number {
   const elapsed = elapsedMs(state, now);
   return state.mode === 'pomodoro' ? pomodoroInfo(elapsed, state.preset).focusMs : elapsed;
+}
+
+/** Whole minutes a timer session records (at least 1). */
+export function focusedMinutes(state: TimerState, now: number): number {
+  const ms = studyMsForTimer(state, now);
+  return Number.isFinite(ms) ? Math.max(1, Math.round(ms / 60_000)) : 1;
+}
+
+/**
+ * The planned study task a session belongs to: the one running at the first of `times`
+ * that has one (the timer's start, then now), latest start first. Skipped tasks don't count.
+ */
+export function sessionTask(tasks: Task[], isStudy: (category: string) => boolean, times: Date[]): Task | null {
+  for (const at of times) {
+    const running = tasks
+      .filter((t) => !t.skipped && isStudy(t.category) && isHappening(t, at))
+      .sort((a, b) => taskStart(b).getTime() - taskStart(a).getTime());
+    if (running.length) return running[0];
+  }
+  return null;
 }
 
 /** ms → "HH:MM:SS" */

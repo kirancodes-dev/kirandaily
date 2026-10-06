@@ -5,7 +5,7 @@ import { Button } from '../common/Button';
 import { SelectField, TextArea, TextField } from '../common/Fields';
 import { useAppData } from '../../hooks/useAppData';
 import { durationMinutes, formatMinutes, isValidTime, WEEKDAY_SHORT, WEEK_ORDER } from '../../utils/date';
-import { validateTask, type TaskFormValues } from '../../utils/taskForm';
+import { defaultTaskTimes, validateTask, type TaskFormValues } from '../../utils/taskForm';
 
 interface TaskFormProps {
   open: boolean;
@@ -17,11 +17,12 @@ interface TaskFormProps {
 }
 
 function initialValues(task: Task | null, date: string): TaskFormValues {
+  const times = defaultTaskTimes(date, new Date());
   return {
     title: task?.title ?? '',
     date: task?.date ?? date,
-    startTime: task?.startTime ?? '18:00',
-    endTime: task?.endTime ?? '19:00',
+    startTime: task?.startTime ?? times.startTime,
+    endTime: task?.endTime ?? times.endTime,
     category: task?.category ?? 'java',
     subjectId: task?.subjectId ?? '',
     priority: task?.priority ?? 'medium',

@@ -41,7 +41,7 @@ export function WeeklyReview({ date, today, onDateChange }: { date: string; toda
         </IconButton>
       </div>
       {today < sunday && today >= weekStart && (
-        <Banner tone="info">The week is still running. The full review is ready on Sunday, {formatLongDate(sunday)}.</Banner>
+        <Banner tone="info">The week is still running. The full review is ready on {formatLongDate(sunday)}.</Banner>
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

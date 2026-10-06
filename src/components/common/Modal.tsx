@@ -35,6 +35,9 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
     if (open && !dlg.open) {
       if (typeof dlg.showModal === 'function') dlg.showModal();
       else dlg.setAttribute('open', '');
+      // React's autoFocus ran while the dialog was still closed, so showModal() focused the first
+      // button (Close). Move focus to the field marked for it (e.g. a new task's title).
+      dlg.querySelector<HTMLElement>('[data-autofocus]')?.focus();
     } else if (!open && dlg.open) {
       dlg.close();
     }
@@ -63,7 +66,8 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
             <X size={22} aria-hidden />
           </IconButton>
         </div>
-        <div className="overflow-y-auto px-4 py-4">{children}</div>
+        {/* No footer: the body's last button stays clear of the iPhone home indicator. */}
+        <div className={`overflow-y-auto px-4 pt-4 ${footer ? 'pb-4' : 'pb-[max(1rem,env(safe-area-inset-bottom))]'}`}>{children}</div>
         {footer && (
           <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] dark:border-slate-800">
             {footer}
