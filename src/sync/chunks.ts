@@ -137,52 +137,161 @@ export function toPlain<T>(value: T): T {
 
 /* ───────────────────────── merging ───────────────────────── */
 
-function unionBy<T>(local: T[], remote: T[], key: (item: T) => string): T[] {
-  const out = new Map<string, T>();
-  for (const item of remote) out.set(key(item), item);
-  for (const item of local) out.set(key(item), item); // this device wins on the same item
-  return [...out.values()];
+/**
+ * Fingerprint of a chunk version: one short hash per part (each list item,
+ * each object field) together with its place in the chunk. Kept for the
+ * version both devices last agreed on, it is the "base" of a three-way merge:
+ * a part whose hash is still in the base was not changed on that side.
+ */
+export type ChunkPrint = string[];
+
+type Path = string[];
+
+/** Lists merged item by item, and the key of an item ("" = can't be keyed). */
+const LIST_KEYS: Record<string, (item: unknown) => unknown> = {
+  exclusions: (x) => x,
+  dayLogs: (x) => (x as { date?: unknown })?.date,
+  weeklyReviews: (x) => (x as { weekStart?: unknown })?.weekStart,
+};
+
+function itemKey(list: string, item: unknown): string {
+  const key = (LIST_KEYS[list] ?? ((x: unknown) => (x as { id?: unknown })?.id))(item);
+  return typeof key === 'string' && key ? key : '';
 }
 
-const byId = (x: unknown) => String((x as { id?: unknown }).id);
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function keyedList(list: string, v: unknown): boolean {
+  return Array.isArray(v) && v.every((x) => itemKey(list, x) !== '');
+}
 
 /**
- * Merges a chunk edited on two devices while offline. Lists are combined by
- * id (nothing is lost; this device wins when both changed the same item);
- * single objects (profile, settings, roadmaps, CGPA) keep this device's version.
+ * Which parts are merged inside: the chunk, its sections (lists item by
+ * item, objects field by field), small nested objects such as
+ * settings.studyTargets or profileExtra.links, and roadmaps down to each
+ * topic. A list item (a task, a note, an event…) is one unit.
  */
-export function mergeChunk(id: string, local: ChunkData | undefined, remote: ChunkData | undefined): ChunkData | undefined {
+function looksInside(path: Path, node: unknown, inItem: boolean): boolean {
+  const list = path[path.length - 1];
+  const container = isPlainObject(node) || keyedList(list, node);
+  if (!container) return false;
+  if (path.length <= 1) return true;
+  if (path[0] === 'roadmaps') return path.length <= 5;
+  return !inItem && isPlainObject(node) && path.length <= 3;
+}
+
+function partHash(path: Path, json: string): string {
+  return hashString(`${JSON.stringify(path)}${json}`).slice(0, 10);
+}
+
+/** Children of a container node: [key, value, isListItem]. */
+function children(path: Path, node: unknown): [string, unknown, boolean][] {
+  if (Array.isArray(node)) {
+    const list = path[path.length - 1];
+    return node.map((x) => [itemKey(list, x), x, true]);
+  }
+  return Object.entries(node as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => [k, v, false]);
+}
+
+export function chunkPrint(chunk: ChunkData | null | undefined): ChunkPrint {
+  const out: string[] = [];
+  const walk = (path: Path, node: unknown, inItem: boolean) => {
+    if (!looksInside(path, node, inItem)) return;
+    for (const [key, child, isItem] of children(path, node)) {
+      const p = [...path, key];
+      out.push(partHash(p, stableStringify(child)));
+      walk(p, child, inItem || isItem);
+    }
+  };
+  walk([], chunk ?? null, false);
+  return out;
+}
+
+const defaultPrints = new Map<string, { hash: string; print: ChunkPrint }>();
+
+/** Hash and fingerprint of a chunk in the untouched first-run state (an empty month, the default core / ext). */
+export function defaultBase(id: string): { hash: string; print: ChunkPrint } {
+  const key = id === CORE_ID || id === EXT_ID ? id : 'month';
+  let base = defaultPrints.get(key);
+  if (!base) {
+    const chunk = key === 'month' ? emptyMonth() : splitData(createDefaultData()).get(key)!;
+    base = { hash: chunkHash(chunk), print: chunkPrint(chunk) };
+    defaultPrints.set(key, base);
+  }
+  return base;
+}
+
+const STATUS_RANK: Record<string, number> = { not_started: 0, in_progress: 1, completed: 2 };
+
+/** Both devices changed the same part: a roadmap topic keeps the more advanced status, anything else this device's version. */
+function resolveConflict(path: Path, local: unknown, remote: unknown): unknown {
+  if (path[0] === 'roadmaps' && path.length === 6) {
+    const rank = (t: unknown) => STATUS_RANK[String((t as { status?: unknown })?.status)] ?? 0;
+    return rank(remote) > rank(local) ? remote : local;
+  }
+  return local;
+}
+
+interface MergeOptions {
+  /** Keep a part one side deleted (first sign-in "merge both": nothing is deleted). */
+  keepDeleted?: boolean;
+}
+
+function merge3(path: Path, l: unknown, r: unknown, base: Set<string>, inItem: boolean, o: MergeOptions): unknown {
+  if (l === undefined) return r === undefined || (!o.keepDeleted && base.has(partHash(path, stableStringify(r)))) ? undefined : r;
+  if (r === undefined) return !o.keepDeleted && base.has(partHash(path, stableStringify(l))) ? undefined : l;
+  const sl = stableStringify(l);
+  const sr = stableStringify(r);
+  if (sl === sr) return l;
+  if (path.length > 0) {
+    if (base.has(partHash(path, sl))) return r; // only the other device changed it
+    if (base.has(partHash(path, sr))) return l; // only this device changed it
+  }
+  if (looksInside(path, l, inItem) && looksInside(path, r, inItem) && Array.isArray(l) === Array.isArray(r)) {
+    if (Array.isArray(l) && Array.isArray(r)) {
+      const list = path[path.length - 1];
+      const mine = new Map(l.map((x) => [itemKey(list, x), x]));
+      const theirs = new Map(r.map((x) => [itemKey(list, x), x]));
+      // The other device's order, then items only this device has.
+      const keys = [...new Set([...theirs.keys(), ...mine.keys()])];
+      return keys.map((k) => merge3([...path, k], mine.get(k), theirs.get(k), base, true, o)).filter((x) => x !== undefined);
+    }
+    const lo = l as Record<string, unknown>;
+    const ro = r as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of new Set([...Object.keys(lo), ...Object.keys(ro)])) {
+      const v = merge3([...path, k], lo[k], ro[k], base, inItem, o);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  return resolveConflict(path, l, r);
+}
+
+/**
+ * Merges a chunk changed on two devices (three-way, against `base`, the
+ * fingerprint of the version both last agreed on). A part only one device
+ * changed takes that device's version, deletions included, so a device that
+ * merely holds an older copy never brings old values back. Parts both
+ * changed are merged inside (lists by id, objects by field); a real
+ * conflict keeps this device's version, except that a roadmap topic keeps
+ * the more advanced status. Without a base every part counts as changed on
+ * both sides: lists are combined (nothing is lost) and this device wins.
+ */
+export function mergeChunk(
+  _id: string,
+  local: ChunkData | undefined,
+  remote: ChunkData | undefined,
+  base?: ChunkPrint | null,
+  options: MergeOptions = {},
+): ChunkData | undefined {
   if (!local) return remote;
   if (!remote) return local;
-  if (id === EXT_ID) {
-    const l = local as ExtChunk;
-    const r = remote as ExtChunk;
-    return { ...l, events: unionBy(l.events ?? [], r.events ?? [], byId) };
-  }
-  if (id === CORE_ID) {
-    const l = local as CoreChunk;
-    const r = remote as CoreChunk;
-    return {
-      ...l,
-      categories: unionBy(l.categories ?? [], r.categories ?? [], byId),
-      templates: unionBy(l.templates ?? [], r.templates ?? [], byId),
-      subjects: unionBy(l.subjects ?? [], r.subjects ?? [], byId),
-      goals: unionBy(l.goals ?? [], r.goals ?? [], byId),
-      projects: unionBy(l.projects ?? [], r.projects ?? [], byId),
-    };
-  }
-  const l = local as MonthChunk;
-  const r = remote as MonthChunk;
-  return {
-    tasks: unionBy(l.tasks ?? [], r.tasks ?? [], byId),
-    exclusions: unionBy(l.exclusions ?? [], r.exclusions ?? [], String),
-    dayLogs: unionBy(l.dayLogs ?? [], r.dayLogs ?? [], (d) => d.date),
-    sessions: unionBy(l.sessions ?? [], r.sessions ?? [], byId),
-    problemLogs: unionBy(l.problemLogs ?? [], r.problemLogs ?? [], byId),
-    germanLogs: unionBy(l.germanLogs ?? [], r.germanLogs ?? [], byId),
-    notes: unionBy(l.notes ?? [], r.notes ?? [], byId),
-    weeklyReviews: unionBy(l.weeklyReviews ?? [], r.weeklyReviews ?? [], (w) => w.weekStart),
-  };
+  return merge3([], local, remote, new Set(base ?? []), false, options) as ChunkData;
 }
 
 /** True when the data is exactly the untouched first-run state. */
